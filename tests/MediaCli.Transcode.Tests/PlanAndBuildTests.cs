@@ -98,6 +98,7 @@ public class PlanAndBuildTests
         Assert.Equal(0, dst.DstFrameRate);
 
         // 60fps 源 + 25 目标：真实降帧
+        Assert.NotNull(entry.Info?.Video);
         entry.Info.Video.FrameRate = 60;
         entry.Preset.Framerate = 25;
         dst = FfmpegPlan.CalculateDstArgs(entry);

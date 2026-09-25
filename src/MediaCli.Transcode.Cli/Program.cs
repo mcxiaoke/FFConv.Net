@@ -107,7 +107,7 @@ public static class Program
         for (var i = 0; i < args.Length; i++)
         {
             var a = args[i];
-            string? Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"missing value for {a}");
+            string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"missing value for {a}");
             switch (a)
             {
                 case "--input" or "-i":

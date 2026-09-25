@@ -8,13 +8,12 @@ namespace MediaCli.Transcode.Tests;
 public class HwAccelTests
 {
     [Theory]
-    [InlineData(607.5, 606)]  // ffmpeg scale 用四舍五入：607.5 → 608? JS Math.round(607.5)=608 → 608
-    [InlineData(569.53, 568)]
-    public void ToEven_RoundsLikeFfmpeg(double input, int expectedEvenHalf)
+    [InlineData(607.5, 608)]   // ffmpeg scale 用四舍五入：Math.round(607.5)=608 → 608
+    [InlineData(569.53, 570)]  // Math.round(569.53)=570 → 570
+    public void ToEven_RoundsLikeFfmpeg(double input, int expected)
     {
-        // 直接对照 JS Math.round：607.5→608-0=608、569.53→570-0=570
-        var v = HwAccel.ToEven(input);
-        Assert.Equal(v, v - (v % 2));
+        // 与 JS toEven 逐值对齐（已用 node 跑 JS 原版核实：608 / 570）
+        Assert.Equal(expected, HwAccel.ToEven(input));
     }
 
     [Fact]
