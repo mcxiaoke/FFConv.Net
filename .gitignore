@@ -86,6 +86,11 @@ $RECYCLE.BIN/
 
 # Agents
 .workbuddy/
+.box-agent/
+.box-agent-scratch/
+
+# 宿主 artifact 元数据
+*.artifact.json
 
 # ============================================================
 # 项目特定

@@ -1,0 +1,33 @@
+# 代码风格（编辑器与 dotnet format 共用）
+#
+# 说明：本文件只固化"空白/换行/编码"这类低争议规则。
+# 刻意不声明分析器严重级别 —— 本仓库的 Directory.Build.props 设了
+# TreatWarningsAsErrors=true，随意提升分析器规则会让构建失败。
+#
+# 行尾：与 .gitattributes 保持一致，仓库内统一 LF。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# C# 源码
+[*.cs]
+indent_size = 4
+tab_width = 4
+
+# C# 设计器/生成代码不参与格式检查
+[*.Designer.cs]
+generated_code = true
+
+# XML / 项目 / 配置类文件
+[*.{csproj,props,targets,slnx,sln,xml,manifest,json,yaml,yml}]
+indent_size = 2
+
+# Markdown：保留行尾空格（换行语义），不做裁剪
+[*.md]
+trim_trailing_whitespace = false

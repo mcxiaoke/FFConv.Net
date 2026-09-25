@@ -1,0 +1,53 @@
+# 行尾与文本属性（单一事实源）
+#
+# 约定：仓库内统一 LF（现代 .NET 仓库主流做法，如 dotnet/runtime）。
+# 理由：本仓库此前的行尾是混用状态（部分 .cs 为 CRLF、部分为 LF），
+#      任何编辑器的一次保存都会产生"整文件全改"的虚假 diff。
+#      在仓库内固定 LF 后，diff 只反映真实改动。
+#
+# 编辑器/检出侧的行尾由各人环境决定（Windows 上仍可用 CRLF 工作副本），
+# Git 负责在检入时归一为 LF。配合 .editorconfig 的 end_of_line = lf 使用。
+
+# 默认：自动识别文本，统一按 LF 存储与检出
+* text=auto eol=lf
+
+# C# 源码：LF + 专用 diff 驱动（函数级 diff 更可读）
+*.cs text eol=lf diff=csharp
+
+# 项目/解决方案/构建脚本（XML 类）
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.slnx text eol=lf
+*.sln text eol=lf
+*.xml text eol=lf
+*.manifest text eol=lf
+
+# 文档与数据
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+
+# Windows 批处理必须 CRLF（cmd.exe 对 LF 的兼容性不可靠）
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制：禁止任何行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.pdb binary
+*.mp4 binary
+*.mkv binary
+*.webm binary
+*.mp3 binary
+*.flac binary
