@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!--
+      需与 GUI 项目同为 net8.0-windows 才能引用它，并需要 UseWindowsForms
+      以使用 Form / Control / DrawToBitmap 等类型做真实 UI 测试。
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>MediaCli.Transcode.Gui.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MediaCli.Transcode.Gui\MediaCli.Transcode.Gui.csproj" />
+  </ItemGroup>
+
+</Project>
