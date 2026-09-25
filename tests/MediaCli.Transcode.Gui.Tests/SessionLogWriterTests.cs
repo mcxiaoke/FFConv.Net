@@ -178,16 +178,16 @@ public class SystemInfoProbeTests
         var line = info.ToStatusLine();
 
         Assert.Contains("CPU Intel i7", line);
-        Assert.Contains("GPU RTX 4070", line);
+        Assert.DoesNotContain("GPU", line);
         Assert.Contains("ffmpeg 8.1.2", line);
         Assert.Contains("cuda/d3d", line);
+
+        // GPU 仍在完整文本中供日志与悬停展示
+        Assert.Contains("RTX 4070", info.ToFullText());
     }
 
     /// <summary>
-    /// 状态栏必须紧凑：多个显示适配器时只列主适配器并标注数量。
-    ///
-    /// 实测本机有 3 个适配器，逐个列举会把 ffmpeg 版本挤出可视区——
-    /// 而版本正是需求要展示的三项之一。完整清单走悬停提示。
+    /// 状态栏必须紧凑：不显示 GPU（移至日志区与悬停提示）；完整 GPU 清单保留在 ToFullText。
     /// </summary>
     [Fact]
     public void ToStatusLine_TruncatesExtraGpus()
@@ -197,12 +197,12 @@ public class SystemInfoProbeTests
             ["RTX 4070", "UHD Graphics 750", "GameViewer Virtual Display"]);
 
         var line = info.ToStatusLine();
-        Assert.Contains("RTX 4070 等 3 个", line);
-        Assert.Contains("ffmpeg 8.1.2", line);          // 版本仍在可视区内
-        Assert.DoesNotContain("GameViewer", line);     // 次要适配器不进状态栏
+        Assert.DoesNotContain("GPU", line);
+        Assert.Contains("ffmpeg 8.1.2", line);          // 版本在可视区内
 
-        // 悬停提示保留完整清单，细节不丢
+        // 完整清单保留所有 GPU
         var full = info.ToFullText();
+        Assert.Contains("RTX 4070", full);
         Assert.Contains("GameViewer Virtual Display", full);
         Assert.Contains("UHD Graphics 750", full);
     }

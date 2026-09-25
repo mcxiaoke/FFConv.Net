@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using MediaCli.Transcode.Bin;
 using MediaCli.Transcode.Hardware;
+using MediaCli.Transcode.Presets;
 using MediaCli.Transcode.Run;
 using MediaCli.Transcode.Support;
 
@@ -67,6 +68,11 @@ public class MainForm : Form
     private bool droppedWarned;
     private string? lastOutputDir;
 
+    // 缓存环境与工具链信息，用于重新开始转码时输出到日志头部
+    private SystemInfo? cachedSystemInfo;
+    private string? cachedFfmpeg;
+    private string? cachedFfprobe;
+
     // 进度：文件级读数（进度条与进度文本都用它）
     private volatile int lastPercent;
     private volatile int lastFileIndex;
@@ -79,7 +85,15 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "mediac GUI — FFmpeg 转码（MediaCli.Transcode core）";
+        Text = "FFConv — 音视频批量转码工具";
+        try
+        {
+            var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+            if (File.Exists(icoPath)) Icon = new Icon(icoPath);
+            else Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        }
+        catch { /* ignore */ }
+
         ClientSize = new Size(1000, 800);
         MinimumSize = new Size(880, 640);
         StartPosition = FormStartPosition.CenterScreen;
@@ -219,13 +233,13 @@ public class MainForm : Form
         var lblArgs = new Label { Name = "lblArgs", Text = "自定义参数", AutoSize = true, Location = new Point(14, 70) };
         cliArgsBox.SetBounds(80, 66, 882, 23);
         cliArgsBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        cliArgsBox.PlaceholderText = "mediac CLI 写法，例：--video-bitrate 3M --video-quality 23";
+        cliArgsBox.PlaceholderText = "FFConv CLI 写法，例：--video-bitrate 3M --video-quality 23";
 
         // 仅保留一行指引；详细说明移到「使用说明」窗口（需求：不再堆在界面上）
         var argsHint = new Label
         {
             Name = "cliArgsHint",
-            Text = "写法与 mediac CLI 一致；全部参数与示例见「使用说明…」",
+            Text = "写法与 FFConv CLI 一致；全部参数与示例见「使用说明…」",
             ForeColor = Color.Gray,
             AutoSize = true,
             Location = new Point(80, 92),
@@ -446,7 +460,7 @@ public class MainForm : Form
     private GuiOptions ReadOptions() => new()
     {
         Inputs = InputLines(),
-        Preset = presetCombo.SelectedItem as string ?? "hevc_2k",
+        Preset = presetCombo.SelectedItem as string ?? "av1_2k",
         Output = outputBox.Text.Trim(),
         OutputMode = modeTree.Checked ? "tree" : modeFile.Checked ? "file" : "dir",
         Hwaccel = hwaccelCombo.SelectedItem as string ?? "auto",
@@ -462,6 +476,25 @@ public class MainForm : Form
     // ==================================================================
     // 运行控制
     // ==================================================================
+
+    /// <summary>
+    /// 即时设置进度条数值，跳过 comctl32 的平滑过渡延迟与变色动画滞后。
+    /// </summary>
+    private void SetProgressInstant(int value)
+    {
+        var v = Math.Clamp(value, progressBar.Minimum, progressBar.Maximum);
+        if (v == progressBar.Maximum)
+        {
+            progressBar.Maximum = v + 1;
+            progressBar.Value = v + 1;
+            progressBar.Maximum = v;
+        }
+        else
+        {
+            progressBar.Value = v + 1;
+            progressBar.Value = v;
+        }
+    }
 
     private void StartRun(bool doit)
     {
@@ -496,7 +529,12 @@ public class MainForm : Form
 
         sink.Clear();
         logBox.Clear();
-        progressBar.Value = 0;
+        lastPercent = 0;
+        lastFileIndex = 0;
+        lastFileTotal = 0;
+        lastFileName = "";
+        progressDirty = false;
+        SetProgressInstant(0);
         progressLabel.Text = doit ? "准备中…" : "预览中…";
         stateLabel.Text = doit ? "执行中" : "预览中";
         droppedWarned = false;
@@ -508,6 +546,19 @@ public class MainForm : Form
         logWriter = new SessionLogWriter();
 
         AppendLog(SessionLogLevel.Info, doit ? "=== 开始转码 ===" : "=== 预览命令（不写盘）===");
+        if (!string.IsNullOrEmpty(cachedFfmpeg))
+        {
+            AppendLog(SessionLogLevel.Info, $"ffmpeg: {cachedFfmpeg}");
+        }
+        if (!string.IsNullOrEmpty(cachedFfprobe))
+        {
+            AppendLog(SessionLogLevel.Info, $"ffprobe: {cachedFfprobe}");
+        }
+        if (cachedSystemInfo is not null)
+        {
+            AppendLog(SessionLogLevel.Info, $"系统与硬件环境：\n{cachedSystemInfo.ToFullText()}");
+        }
+        LogPresetDetail(opts.Preset);
         AppendLog(SessionLogLevel.Info, $"输入 {opts.Inputs.Count} 项  ·  输出目录 " +
             (string.IsNullOrWhiteSpace(opts.Output) ? "（源文件目录）" : opts.Output));
         foreach (var w in warnings) AppendLog(SessionLogLevel.Warn, w);
@@ -559,6 +610,7 @@ public class MainForm : Form
     private void FinishRun(Task<SessionSummary> task, GuiOptions opts)
     {
         running = null;
+        progressDirty = false;
         try { cts?.Dispose(); } catch { /* ignore */ }
         cts = null;
         SetBusy(false);
@@ -574,7 +626,8 @@ public class MainForm : Form
         if (!task.IsCompletedSuccessfully)
         {
             AppendLog(SessionLogLevel.Warn, "任务已取消。");
-            progressBar.Value = 0;
+            lastPercent = 0;
+            SetProgressInstant(0);
             progressLabel.Text = "已取消";
             stateLabel.Text = "已取消";
             return;
@@ -589,7 +642,8 @@ public class MainForm : Form
             return;
         }
 
-        progressBar.Value = 100;
+        lastPercent = 100;
+        SetProgressInstant(100);
         // 文案按模式区分：预览不产出文件，Processed 恒为 0，
         // 若显示「完成 0/1」会让用户以为失败——预览应显示「预览 1/1」。
         progressLabel.Text = s.WasCancelled
@@ -664,12 +718,12 @@ public class MainForm : Form
     /// </summary>
     private void Flush()
     {
-        if (progressDirty)
+        if (running is not null && progressDirty)
         {
             progressDirty = false;
             var v = Math.Clamp(lastPercent, progressBar.Minimum, progressBar.Maximum);
             if (v != progressBar.Value) progressBar.Value = v;
-            if (running is not null && lastFileTotal > 0)
+            if (lastFileTotal > 0)
             {
                 // 文件级读数（需求：显示「正在处理 122/200」），不含文件内部百分比与 speed
                 progressLabel.Text = $"正在处理 {lastFileIndex}/{lastFileTotal}  {lastFileName}";
@@ -761,7 +815,9 @@ public class MainForm : Form
         sink.Clear();
         logBox.Clear();
         droppedWarned = false;
-        progressBar.Value = 0;
+        lastPercent = 0;
+        progressDirty = false;
+        SetProgressInstant(0);
         progressLabel.Text = running is null ? "就绪" : progressLabel.Text;
     }
 
@@ -803,12 +859,19 @@ public class MainForm : Form
     {
         try
         {
+            presetCombo.SelectedIndexChanged -= OnPresetComboChanged;
             var names = TranscodeSession.PresetNames();
             presetCombo.Items.Clear();
             presetCombo.Items.AddRange(names.Cast<object>().ToArray());
-            var idx = presetCombo.Items.IndexOf("hevc_2k");
+            var idx = presetCombo.Items.IndexOf("av1_2k");
             presetCombo.SelectedIndex = idx >= 0 ? idx : 0;
+            presetCombo.SelectedIndexChanged += OnPresetComboChanged;
+
             AppendLog(SessionLogLevel.Info, $"已加载 {names.Count} 个预设（详细说明见「使用说明…」）。");
+            if (presetCombo.SelectedItem is string defaultPreset)
+            {
+                LogPresetDetail(defaultPreset);
+            }
         }
         catch (Exception ex)
         {
@@ -826,23 +889,52 @@ public class MainForm : Form
             systemInfoLabel.Text = "未找到 ffmpeg";
             return;
         }
+        cachedFfmpeg = ffmpeg;
         FfmpegRun.SetFFmpegPath(ffmpeg);
         AppendLog(SessionLogLevel.Info, $"ffmpeg: {ffmpeg}");
 
         var ffprobe = FfmpegBin.ResolveFFprobeBinary(ffmpeg);
+        cachedFfprobe = ffprobe;
         AppendLog(SessionLogLevel.Info,
             ffprobe is null ? "ffprobe: 未找到（媒体信息探测会失败）" : $"ffprobe: {ffprobe}");
 
-        // 状态栏：CPU / GPU / ffmpeg 版本 / 可用硬件层（需求 4）
-        // 悬停显示完整信息（多个适配器时状态栏只列主适配器，细节放 ToolTip）
+        // 状态栏：CPU / ffmpeg 版本 / 可用硬件层（GPU 移除，完整硬件环境信息写日志）
         SystemInfoProbe.ProbeAsync(
             ffmpeg,
             info => SafeUi(() =>
             {
+                cachedSystemInfo = info;
                 systemInfoLabel.Text = info.ToStatusLine();
                 systemInfoLabel.ToolTipText = info.ToFullText();
+                AppendLog(SessionLogLevel.Info, $"硬件环境信息：\n{info.ToFullText()}");
             }),
             err => sink.Write(SessionLogLevel.Warn, $"硬件能力探测失败（不影响 cpu 层转码）：{err}"));
+    }
+
+    private void OnPresetComboChanged(object? sender, EventArgs e)
+    {
+        if (presetCombo.SelectedItem is string name)
+        {
+            LogPresetDetail(name);
+        }
+    }
+
+    private void LogPresetDetail(string presetName)
+    {
+        try
+        {
+            TranscodeSession.EnsurePresetsLoaded();
+            var preset = FFmpegPresets.GetPreset(presetName);
+            if (preset is not null)
+            {
+                var detail = AboutContent.PresetDetail(preset).TrimEnd();
+                AppendLog(SessionLogLevel.Info, $"--- 预设详情 [{preset.Name}] ---\n{detail}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog(SessionLogLevel.Warn, $"无法获取预设详情：{ex.Message}");
+        }
     }
 
     // ==================================================================

@@ -17,22 +17,12 @@ public sealed record SystemInfo(
     public int GpuCount => AllGpus.Count;
 
     /// <summary>
-    /// 状态栏单行文本。
-    ///
-    /// 必须保持紧凑：状态栏宽度有限，文字过长会被截断——实测本机有 3 个显示适配器时，
-    /// 把适配器逐个列举会把 <b>ffmpeg 版本挤出可视区</b>，而版本正是需求要展示的三项之一。
-    /// 因此这里只列主适配器（多于一个时标注数量），完整清单见 <see cref="ToFullText"/>。
+    /// 状态栏单行文本（CPU · ffmpeg · 硬件层）。保持紧凑，不放 GPU，GPU 与完整环境信息放日志区。
     /// </summary>
     public string ToStatusLine()
     {
         var tiers = UsableTiers.Count > 0 ? string.Join("/", UsableTiers) : "无（cpu）";
-        var gpu = GpuCount switch
-        {
-            0 => "未识别",
-            1 => Gpu,
-            _ => $"{Gpu} 等 {GpuCount} 个",
-        };
-        return $"CPU {ShortCpu(Cpu)}   ·   GPU {gpu}   ·   ffmpeg {FfmpegVersion}   ·   硬件层 {tiers}";
+        return $"CPU {ShortCpu(Cpu)}   ·   ffmpeg {FfmpegVersion}   ·   硬件层 {tiers}";
     }
 
     /// <summary>完整信息（悬停提示用，不做任何截断，保证细节不丢）。</summary>

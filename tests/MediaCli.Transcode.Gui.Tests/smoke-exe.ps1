@@ -10,7 +10,7 @@
 [CmdletBinding()]
 param(
     # 默认路径相对于本脚本（tests/MediaCli.Transcode.Gui.Tests/），需上溯两级到仓库根
-    [string]$ExePath = "$PSScriptRoot\..\..\src\MediaCli.Transcode.Gui\bin\Debug\net8.0-windows\mediac-gui.exe"
+    [string]$ExePath = "$PSScriptRoot\..\..\src\MediaCli.Transcode.Gui\bin\Debug\net8.0-windows\FFConv.exe"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,19 +44,26 @@ try {
     # 1. 等待主窗口出现
     $deadline = (Get-Date).AddSeconds(30)
     $win = $null
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
     while ((Get-Date) -lt $deadline) {
         $proc.Refresh()
         if ($proc.HasExited) { throw "进程提前退出，退出码 $($proc.ExitCode)" }
-        if ($proc.MainWindowHandle -ne 0) {
-            $win = [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
-            if ($win) { break }
+        $wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $cond)
+        foreach ($w in $wins) {
+            if ($w.Current.Name -like '*FFConv*') {
+                $win = $w
+                break
+            }
         }
+        if ($win) { break }
         Start-Sleep -Milliseconds 300
     }
     Assert ($null -ne $win) "主窗口已创建"
 
     Write-Host "窗口标题: $($win.Current.Name)"
-    Assert ($win.Current.Name -like '*mediac GUI*') "窗口标题符合预期"
+    Assert ($win.Current.Name -like '*FFConv*') "窗口标题符合预期"
 
     # 2. 用 UIA 查找关键控件（等价于读屏软件看到的内容）
     Start-Sleep -Seconds 3   # 等启动诊断填充预设下拉
@@ -99,15 +106,17 @@ public class Win32Shot {
 }
 "@
 
+    $mainHwnd = [IntPtr]$win.Current.NativeWindowHandle
+
     function Capture($suffix) {
         $r = New-Object Win32Shot+RECT
-        [void][Win32Shot]::GetWindowRect($proc.MainWindowHandle, [ref]$r)
+        [void][Win32Shot]::GetWindowRect($mainHwnd, [ref]$r)
         $w = $r.Right - $r.Left
         $h = $r.Bottom - $r.Top
         $bmp = New-Object System.Drawing.Bitmap($w, $h)
         $g = [System.Drawing.Graphics]::FromImage($bmp)
         $hdc = $g.GetHdc()
-        [void][Win32Shot]::PrintWindow($proc.MainWindowHandle, $hdc, 2)  # PW_RENDERFULLCONTENT
+        [void][Win32Shot]::PrintWindow($mainHwnd, $hdc, 2)  # PW_RENDERFULLCONTENT
         $g.ReleaseHdc($hdc)
         $g.Dispose()
         $path = Join-Path $shotDir "exe-$suffix.png"
@@ -118,7 +127,7 @@ public class Win32Shot {
     }
 
     Write-Host "`n--- 截图 ---"
-    [void][Win32Shot]::SetForegroundWindow($proc.MainWindowHandle)
+    [void][Win32Shot]::SetForegroundWindow($mainHwnd)
     Start-Sleep -Milliseconds 600
     $shot = Capture 'default'
     Assert (Test-Path $shot) "截图已生成"
@@ -128,9 +137,9 @@ public class Win32Shot {
     Write-Host "`n--- 部署完整性 ---"
     $outDir = Split-Path $exe -Parent
     Assert (Test-Path (Join-Path $outDir 'presets\default.yaml')) "预设随输出部署"
-    Assert (Test-Path (Join-Path $outDir 'mediac-gui.runtimeconfig.json')) "runtimeconfig 存在"
+    Assert (Test-Path (Join-Path $outDir 'FFConv.runtimeconfig.json')) "runtimeconfig 存在"
 
-    $rc = Get-Content (Join-Path $outDir 'mediac-gui.runtimeconfig.json') -Raw
+    $rc = Get-Content (Join-Path $outDir 'FFConv.runtimeconfig.json') -Raw
     Assert ($rc -match '"rollForward"\s*:\s*"Major"') "runtimeconfig 含 rollForward=Major"
 }
 finally {

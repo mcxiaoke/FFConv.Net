@@ -1,6 +1,6 @@
 namespace MediaCli.Transcode.Gui;
 
-/// <summary>mediac GUI 入口。</summary>
+/// <summary>FFConv GUI 入口。</summary>
 internal static class Program
 {
     [STAThread]
@@ -33,7 +33,7 @@ internal static class Program
         {
             MessageBox.Show(
                 ex?.ToString() ?? "未知错误",
-                "mediac GUI — 未处理异常",
+                "FFConv — 未处理异常",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }

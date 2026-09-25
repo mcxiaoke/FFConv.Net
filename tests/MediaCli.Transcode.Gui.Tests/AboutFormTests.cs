@@ -32,6 +32,7 @@ public class AboutFormTests
             Assert.Equal(3, tabs.TabPages.Count);
 
             var titles = tabs.TabPages.Cast<TabPage>().Select(p => p.Text).ToList();
+            Assert.Equal("命令行参数", tabs.TabPages[0].Text);
             Assert.Contains("预设", titles);
             Assert.Contains("命令行参数", titles);
             Assert.Contains("使用提示", titles);

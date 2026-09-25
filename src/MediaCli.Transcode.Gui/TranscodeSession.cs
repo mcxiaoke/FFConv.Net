@@ -298,6 +298,10 @@ public sealed class TranscodeSession
             }
 
             Classify(done, src, summary);
+            var completedCount = i + 1;
+            var fileOverall = (double)completedCount / filtered.Count * 100.0;
+            progress?.Invoke(new SessionProgress(
+                completedCount, filtered.Count, src.Name, completedCount, fileOverall, 100, ""));
         }
 
         batchWatch.Stop();

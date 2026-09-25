@@ -5,11 +5,19 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>MediaCli.Transcode.Gui</RootNamespace>
-    <AssemblyName>mediac-gui</AssemblyName>
+    <AssemblyName>FFConv</AssemblyName>
+    <Product>FFConv</Product>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationDefaultFont>Microsoft YaHei UI, 9pt</ApplicationDefaultFont>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\MediaCli.Transcode\MediaCli.Transcode.csproj" />

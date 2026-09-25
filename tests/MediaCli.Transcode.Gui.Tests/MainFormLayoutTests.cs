@@ -68,7 +68,7 @@ public class MainFormLayoutTests
         });
     }
 
-    /// <summary>状态栏必须显示 CPU / GPU / ffmpeg 版本信息（需求 4）。</summary>
+    /// <summary>状态栏显示 CPU / ffmpeg 版本信息（GPU 移至日志区，不占状态栏）。</summary>
     [Fact]
     public void StatusBar_ShowsSystemInfo()
     {
@@ -83,8 +83,9 @@ public class MainFormLayoutTests
                     60_000),
                 $"状态栏未显示机器信息，当前为「{Ui.ItemText(item)}」");
 
-            Assert.Contains("GPU", Ui.ItemText(item));
+            Assert.DoesNotContain("GPU", Ui.ItemText(item));
             Assert.Contains("ffmpeg", Ui.ItemText(item));
+            Assert.Contains("硬件环境信息", Ui.Require<RichTextBox>(form, "logBox").Text);
         });
     }
 

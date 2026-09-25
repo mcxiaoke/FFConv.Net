@@ -245,7 +245,7 @@ public class GuiMappingTests
         var opts = new GuiOptions();
         var argv = opts.ToArgvOptions();
 
-        Assert.Equal("hevc_2k", opts.Preset);
+        Assert.Equal("av1_2k", opts.Preset);
         Assert.Equal("dir", argv.OutputMode);
         Assert.Equal("auto", argv.DecodeMode);
         Assert.False(argv.Override);   // 默认不覆盖已有产物

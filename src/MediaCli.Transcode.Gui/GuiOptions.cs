@@ -23,7 +23,7 @@ public sealed class GuiOptions
     public List<string> Inputs { get; init; } = [];
 
     /// <summary>预设名。别名（anime / av1 / h264 / hevc_anime …）由 core 解析，此处不重复实现。</summary>
-    public string Preset { get; set; } = "hevc_2k";
+    public string Preset { get; set; } = "av1_2k";
 
     /// <summary>输出目录；空字符串表示输出到源文件同目录。</summary>
     public string Output { get; set; } = "";
@@ -38,7 +38,7 @@ public sealed class GuiOptions
     public string DecodeMode { get; set; } = "auto";
 
     /// <summary>
-    /// 自定义参数（mediac CLI 风格，可含 <c>--ffargs</c>）。
+    /// 自定义参数（FFConv CLI 风格，可含 <c>--ffargs</c>）。
     /// 例：<c>--video-bitrate 3M --video-quality 23 --include foo</c>
     /// </summary>
     public string CliArgs { get; set; } = "";

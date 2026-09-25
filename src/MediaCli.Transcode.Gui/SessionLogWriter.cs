@@ -39,11 +39,11 @@ public sealed class SessionLogWriter : IDisposable
     {
         try
         {
-            var dir = Path.Combine(Path.GetTempPath(), "mediac-gui-logs");
+            var dir = Path.Combine(Path.GetTempPath(), "ffconv-logs");
             Directory.CreateDirectory(dir);
             // 文件名必须带唯一后缀：只精确到秒时，同一秒内创建两个 writer
             // （例如连续两次运行）会撞名，后一个因文件被占用而抛 IOException。
-            tempPath = Path.Combine(dir, $"mediac-{Stamp()}.log");
+            tempPath = Path.Combine(dir, $"ffconv-{Stamp()}.log");
             // FileShare.ReadWrite：允许在转码过程中用编辑器打开该日志查看，
             // 也让测试能直接读取内容。默认的独占打开会让"边跑边看日志"直接失败。
             var stream = new FileStream(
@@ -116,7 +116,7 @@ public sealed class SessionLogWriter : IDisposable
             {
                 Directory.CreateDirectory(outputDir);
                 // 同样加唯一后缀，避免同一秒内两次同步撞名
-                var name = $"mediac-transcode-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..(24 + 6)] + ".log";
+                var name = $"ffconv-transcode-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..(24 + 6)] + ".log";
                 var target = Path.Combine(outputDir, name);
                 File.WriteAllText(target, string.Join(Environment.NewLine, lines), Encoding.UTF8);
                 SyncedPath = target;

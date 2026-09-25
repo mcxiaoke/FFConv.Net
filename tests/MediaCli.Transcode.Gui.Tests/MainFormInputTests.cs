@@ -57,13 +57,14 @@ public class MainFormInputTests
             var items = combo.Items.Cast<string>().ToList();
             Assert.Contains("hevc_2k", items);
             Assert.Contains("h264_2k", items);
+            Assert.Contains("av1_2k", items);
             // _base_* 是继承基类，不应注册为可用预设
             Assert.DoesNotContain(items, i => i.StartsWith('_'));
-            Assert.Equal("hevc_2k", combo.SelectedItem);
+            Assert.Equal("av1_2k", combo.SelectedItem);
         });
     }
 
-    /// <summary>启动诊断应在日志里说明实际使用的 ffmpeg 与硬件能力。</summary>
+    /// <summary>启动诊断应在日志里说明实际使用的 ffmpeg 与硬件能力，并打印默认预设详情。</summary>
     [Fact]
     public void Startup_LogsFfmpegPathAndHardware()
     {
@@ -72,6 +73,22 @@ public class MainFormInputTests
             Assert.True(Ui.WaitUntil(() => LogText(form).Contains("ffmpeg:"), 30_000),
                 "日志应报告实际使用的 ffmpeg 路径");
             Assert.Contains("ffprobe:", LogText(form));
+            Assert.True(Ui.WaitUntil(() => LogText(form).Contains("预设详情 [av1_2k]"), 30_000),
+                "日志应打印默认预设 av1_2k 详情");
+        });
+    }
+
+    /// <summary>修改预设时应在日志区打印新预设的详细信息。</summary>
+    [Fact]
+    public void ChangingPreset_LogsPresetDetail()
+    {
+        Ui.RunWithForm(form =>
+        {
+            var combo = Ui.Require<ComboBox>(form, "presetCombo");
+            Assert.True(Ui.WaitUntil(() => combo.Items.Count > 0, 30_000));
+            combo.SelectedItem = "h264_2k";
+            Ui.Pump(200);
+            Assert.Contains("预设详情 [h264_2k]", LogText(form));
         });
     }
 
@@ -226,6 +243,49 @@ public class MainFormInputTests
 
             Assert.Equal("", log.Text);
             Assert.Equal(0, bar.Value);
+        });
+    }
+
+    /// <summary>
+    /// 先点预览再点转码：转码完成后进度条必须为 100%，且不会被后置 Flush 覆盖或变色滞后。
+    /// </summary>
+    [Fact]
+    public void PreviewThenTranscode_ProgressBarReaches100Percent()
+    {
+        var sample = RequireSample();
+
+        Ui.RunWithForm(form =>
+        {
+            Ui.WaitUntil(() => Ui.Require<ComboBox>(form, "presetCombo").Items.Count > 0, 30_000);
+
+            Ui.Require<TextBox>(form, "inputBox").Text = sample;
+            var outDir = Path.Combine(Path.GetTempPath(), "ffconv-test-prevrun-" + Guid.NewGuid().ToString("N")[..8]);
+            Ui.Require<TextBox>(form, "outputBox").Text = outDir;
+            Ui.Require<CheckBox>(form, "overrideCheck").Checked = true;
+            form.ConfirmResult = true;
+
+            // 1. 先点预览
+            Ui.Click(form, "btnPreview");
+            Assert.True(Ui.WaitUntil(() => !form.IsRunning, 180_000), "预览未在超时内完成");
+            Ui.Pump(300);
+            Assert.Equal(100, Ui.Require<ProgressBar>(form, "progressBar").Value);
+
+            // 2. 再点转码
+            Ui.Click(form, "btnRun");
+            Assert.True(Ui.WaitUntil(() => !form.IsRunning, 180_000), "转码未在超时内完成");
+            Ui.Pump(600); // 等待 Flush 充分执行
+
+            var bar = Ui.Require<ProgressBar>(form, "progressBar");
+            Assert.Equal(100, bar.Value);
+            var label = Ui.Require<Label>(form, "progressLabel");
+            Assert.Contains("完成 1/1", label.Text);
+
+            // 并且环境信息与预设信息已在转码开始后重新打印在日志区域
+            var log = LogText(form);
+            Assert.Contains("=== 开始转码 ===", log);
+            Assert.Contains("预设详情", log);
+
+            try { Directory.Delete(outDir, true); } catch { /* ignore */ }
         });
     }
 

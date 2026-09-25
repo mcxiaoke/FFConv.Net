@@ -65,7 +65,7 @@ public static class AboutContent
     public static string CliOptionTable()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("mediac 命令行参数（与 mediacli.js 的 cmd ffmpeg 对齐）");
+        sb.AppendLine("FFConv 命令行参数（与 FFConv CLI 对齐）");
         sb.AppendLine();
         sb.AppendLine("【可用参数】");
         foreach (var o in CliOptions.All.Where(o => o.Supported))
@@ -103,7 +103,7 @@ public static class AboutContent
     public static string UsageTips()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("一、参数优先级（与 mediac 一致）");
+        sb.AppendLine("一、参数优先级（与 FFConv 一致）");
         sb.AppendLine("    命令行单独参数  >  --ffargs 复合参数  >  预设默认值");
         sb.AppendLine("    本界面上：参数框  >  界面控件（下拉框 / 复选框）");
         sb.AppendLine("    参数框覆盖了某个控件时，日志里会明确说明，不会静默生效。");
@@ -155,8 +155,9 @@ public sealed class AboutForm : Form
 
         var tabs = new TabControl { Name = "aboutTabs", Dock = DockStyle.Fill };
 
-        tabs.TabPages.Add(BuildPresetPage());
+        // 命令行参数放第一个 TAB
         tabs.TabPages.Add(BuildCliPage());
+        tabs.TabPages.Add(BuildPresetPage());
         tabs.TabPages.Add(BuildTipsPage());
 
         Controls.Add(tabs);
@@ -228,7 +229,11 @@ public sealed class AboutForm : Form
             if (list.SelectedItems.Count == 0) return;
             detail.Text = AboutContent.PresetDetail((FFmpegPreset)list.SelectedItems[0].Tag!);
         };
-        if (list.Items.Count > 0) list.Items[0].Selected = true;
+        if (list.Items.Count > 0)
+        {
+            list.Items[0].Selected = true;
+            detail.Text = AboutContent.PresetDetail((FFmpegPreset)list.Items[0].Tag!);
+        }
 
         page.Controls.Add(detail);
         page.Controls.Add(list);
