@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MediaCli.Transcode.Cli/MediaCli.Transcode.Cli.csproj" />
+    <Project Path="src/MediaCli.Transcode/MediaCli.Transcode.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MediaCli.Transcode.Tests/MediaCli.Transcode.Tests.csproj" />
+  </Folder>
+</Solution>
