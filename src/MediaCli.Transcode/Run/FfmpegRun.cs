@@ -374,7 +374,13 @@ public static partial class FfmpegRun
             RedirectStandardError = true,
             RedirectStandardInput = true,
             CreateNoWindow = true,
+            // stdout 是 -progress 的 key=value 流（纯 ASCII），Latin1 可保证字节无损。
             StandardOutputEncoding = Encoding.Latin1,
+            // stderr 是人类可读的错误文本，本机 ffmpeg 以 UTF-8 输出。
+            // 实测 .NET 8 的默认解码已是 UTF-8（中文路径可正常显示），此处显式固定是
+            // 为了不依赖宿主控制台状态：GUI 由资源管理器启动时与终端启动的码页可能不同，
+            // 显式指定可保证日志里的中文路径始终可读。
+            StandardErrorEncoding = Encoding.UTF8,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var proc = new Process { StartInfo = psi };

@@ -135,6 +135,13 @@ public static class FFmpegPresets
         ["anime"] = "anime",
     };
 
+    /// <summary>
+    /// 别名表的只读视图。
+    /// 供上层（如 GUI 的 ffargs 预检）判断键是否合法，避免各处复制别名表造成漂移。
+    /// 仅暴露读取，不改变 applyFfargs 的任何行为。
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ArgAliasesView => ArgAliases;
+
     public sealed class ArgvShim
     {
         public long VideoBitrate { get; set; }

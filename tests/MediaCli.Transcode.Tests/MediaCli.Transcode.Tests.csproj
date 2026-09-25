@@ -2,6 +2,13 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!--
+      需与 GUI 项目同为 net8.0-windows 才能引用它（WindowsDesktop 框架引用随 ProjectReference 传递）。
+      刻意<b>不</b>设 UseWindowsForms：那会把 System.Drawing / System.Windows.Forms 注入隐式 using，
+      与既有测试里的 Model.Size 产生 CS0104 二义。被测的 GuiOptions / TranscodeSession 本身
+      不含 WinForms 类型，因此不需要桌面隐式 using。
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>MediaCli.Transcode.Tests</RootNamespace>
   </PropertyGroup>
 
@@ -13,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MediaCli.Transcode\MediaCli.Transcode.csproj" />
+    <ProjectReference Include="..\..\src\MediaCli.Transcode.Gui\MediaCli.Transcode.Gui.csproj" />
   </ItemGroup>
 
 </Project>
