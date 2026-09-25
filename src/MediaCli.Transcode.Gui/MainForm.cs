@@ -73,11 +73,14 @@ public class MainForm : Form
     private string? cachedFfmpeg;
     private string? cachedFfprobe;
 
-    // 进度：文件级读数（进度条与进度文本都用它）
+    private readonly ToolTip toolTip = new();
+
     private volatile int lastPercent;
     private volatile int lastFileIndex;
     private volatile int lastFileTotal;
     private volatile string lastFileName = "";
+    private volatile int lastWithinPercent;
+    private volatile string lastSpeed = "";
     private volatile bool progressDirty;
 
     /// <summary>当前是否有任务在跑（供 UI 测试与外部状态展示）。</summary>
@@ -105,6 +108,7 @@ public class MainForm : Form
         BuildActionGroup();
         BuildLogGroup();
         BuildStatusBar();
+        SetupDragDrop();
 
         flushTimer.Interval = 100;
         flushTimer.Tick += (_, _) => Flush();
@@ -151,7 +155,7 @@ public class MainForm : Form
         var hint = new Label
         {
             Name = "inputHint",
-            Text = "每行一个路径；目录会被递归扫描。",
+            Text = "每行一个路径；支持直接拖入文件或目录。",
             ForeColor = Color.Gray,
             AutoSize = true,
             Location = new Point(254, 30),
@@ -163,8 +167,60 @@ public class MainForm : Form
         inputBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         inputBox.TextChanged += (_, _) => RefreshInputCount();
 
+        var inputMenu = new ContextMenuStrip();
+        var menuClear = new ToolStripMenuItem("清空输入");
+        menuClear.Click += (_, _) => inputBox.Clear();
+        var menuSelectAll = new ToolStripMenuItem("全选");
+        menuSelectAll.Click += (_, _) => inputBox.SelectAll();
+        var menuCopy = new ToolStripMenuItem("复制全部路径");
+        menuCopy.Click += (_, _) => { if (!string.IsNullOrEmpty(inputBox.Text)) Clipboard.SetText(inputBox.Text); };
+        inputMenu.Items.AddRange([menuClear, new ToolStripSeparator(), menuSelectAll, menuCopy]);
+        inputBox.ContextMenuStrip = inputMenu;
+
         box.Controls.AddRange([btnFile, btnDir, hint, inputBox]);
         Controls.Add(box);
+    }
+
+    private void SetupDragDrop()
+    {
+        AllowDrop = true;
+        DragEnter += OnDragEnterFiles;
+        DragDrop += OnDragDropFiles;
+
+        inputBox.AllowDrop = true;
+        inputBox.DragEnter += OnDragEnterFiles;
+        inputBox.DragDrop += OnDragDropFiles;
+
+        outputBox.AllowDrop = true;
+        outputBox.DragEnter += OnDragEnterFiles;
+        outputBox.DragDrop += OnDragDropOutputDir;
+    }
+
+    private static void OnDragEnterFiles(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            e.Effect = DragDropEffects.Copy;
+        else
+            e.Effect = DragDropEffects.None;
+    }
+
+    private void OnDragDropFiles(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true &&
+            e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
+        {
+            AddInputLines(paths);
+        }
+    }
+
+    private void OnDragDropOutputDir(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true &&
+            e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
+        {
+            var dir = Directory.Exists(paths[0]) ? paths[0] : Path.GetDirectoryName(paths[0]);
+            if (!string.IsNullOrEmpty(dir)) outputBox.Text = dir;
+        }
     }
 
     private void BuildOutputGroup()
@@ -274,24 +330,34 @@ public class MainForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
 
-        btnPreview.Text = "预览命令";
+        btnPreview.Text = "预览命令(&P)";
+        btnPreview.AccessibleName = "预览命令";
         btnPreview.SetBounds(14, 24, 110, 28);
         btnPreview.Click += (_, _) => StartRun(doit: false);
 
-        btnRun.Text = "开始转码";
+        btnRun.Text = "开始转码(&R)";
+        btnRun.AccessibleName = "开始转码";
         btnRun.SetBounds(132, 24, 110, 28);
+        btnRun.BackColor = Color.FromArgb(0x0B, 0x53, 0x94);
+        btnRun.ForeColor = Color.White;
+        btnRun.FlatStyle = FlatStyle.Flat;
+        btnRun.FlatAppearance.BorderSize = 0;
+        btnRun.Font = new Font(Font, FontStyle.Bold);
         btnRun.Click += (_, _) => StartRun(doit: true);
 
-        btnCancel.Text = "取消";
+        btnCancel.Text = "取消(&C)";
+        btnCancel.AccessibleName = "取消";
         btnCancel.SetBounds(250, 24, 90, 28);
         btnCancel.Enabled = false;
         btnCancel.Click += OnCancel;
 
-        btnClear.Text = "清空日志";
+        btnClear.Text = "清空日志(&L)";
+        btnClear.AccessibleName = "清空日志";
         btnClear.SetBounds(348, 24, 90, 28);
         btnClear.Click += OnClearLog;
 
-        btnOpenOutput.Text = "打开输出目录";
+        btnOpenOutput.Text = "打开输出目录(&O)";
+        btnOpenOutput.AccessibleName = "打开输出目录";
         btnOpenOutput.SetBounds(446, 24, 120, 28);
         btnOpenOutput.Click += OnOpenOutput;
 
@@ -309,7 +375,7 @@ public class MainForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
 
-        logBox.SetBounds(14, 24, 948, 226);
+        logBox.SetBounds(14, 22, 948, 214);
         logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         logBox.ReadOnly = true;
         logBox.BackColor = Color.FromArgb(250, 250, 250);
@@ -320,18 +386,41 @@ public class MainForm : Form
         logBox.ScrollBars = RichTextBoxScrollBars.Vertical;
         logBox.DetectUrls = false;
 
-        progressBar.SetBounds(14, 258, 700, 18);
+        var logMenu = new ContextMenuStrip();
+        var menuCopySelection = new ToolStripMenuItem("复制选中");
+        menuCopySelection.Click += (_, _) => { if (!string.IsNullOrEmpty(logBox.SelectedText)) Clipboard.SetText(logBox.SelectedText); };
+        var menuCopyAll = new ToolStripMenuItem("复制全部日志");
+        menuCopyAll.Click += (_, _) => { if (!string.IsNullOrEmpty(logBox.Text)) Clipboard.SetText(logBox.Text); };
+        var menuClearLog = new ToolStripMenuItem("清空日志");
+        menuClearLog.Click += OnClearLog;
+        var menuOpenLogFile = new ToolStripMenuItem("在记事本中打开会话日志");
+        menuOpenLogFile.Click += (_, _) =>
+        {
+            if (logWriter?.TempPath is string path && File.Exists(path))
+            {
+                try { Process.Start(new ProcessStartInfo { FileName = "notepad.exe", Arguments = $"\"{path}\"", UseShellExecute = true }); } catch { }
+            }
+            else
+            {
+                Notify("当前会话日志文件尚未生成或不可读。", "提示");
+            }
+        };
+        logMenu.Items.AddRange([menuCopySelection, menuCopyAll, new ToolStripSeparator(), menuClearLog, menuOpenLogFile]);
+        logBox.ContextMenuStrip = logMenu;
+
+        // 独立一行：状态、文件名称、实时百分比与倍速
+        progressLabel.Text = "就绪";
+        progressLabel.SetBounds(14, 240, 948, 16);
+        progressLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        progressLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+        // 独立一行：全宽进度条（100% 时打满整槽，消除未走满错觉）
+        progressBar.SetBounds(14, 260, 948, 14);
         progressBar.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         progressBar.Minimum = 0;
         progressBar.Maximum = 100;
 
-        // 进度文本为文件级（如「122/200」）；文件内部的百分比与 speed 只写日志
-        progressLabel.Text = "就绪";
-        progressLabel.SetBounds(722, 259, 240, 18);
-        progressLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-        progressLabel.TextAlign = ContentAlignment.MiddleRight;
-
-        box.Controls.AddRange([logBox, progressBar, progressLabel]);
+        box.Controls.AddRange([logBox, progressLabel, progressBar]);
         Controls.Add(box);
     }
 
@@ -604,6 +693,8 @@ public class MainForm : Form
         lastFileIndex = p.FileIndex;
         lastFileTotal = p.FileTotal;
         lastFileName = p.FileName;
+        lastWithinPercent = (int)Math.Round(p.WithinPercent);
+        lastSpeed = p.Speed;
         progressDirty = true;
     }
 
@@ -649,9 +740,15 @@ public class MainForm : Form
         progressLabel.Text = s.WasCancelled
             ? "已取消"
             : s.Preview > 0
-                ? $"预览 {s.Preview}/{s.Total}"
-                : $"完成 {s.Processed}/{s.Total}";
+                ? $"预览完成 {s.Preview}/{s.Total}  ·  100%"
+                : $"转码完成 {s.Processed}/{s.Total}  ·  100%";
         stateLabel.Text = s.WasCancelled ? "已取消" : s.Preview > 0 ? "预览完成" : "已完成";
+
+        if (!s.WasCancelled && s.Success > 0)
+        {
+            FlashWindow();
+            try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
+        }
 
         FinalizeLog(opts, s);
     }
@@ -725,8 +822,11 @@ public class MainForm : Form
             if (v != progressBar.Value) progressBar.Value = v;
             if (lastFileTotal > 0)
             {
-                // 文件级读数（需求：显示「正在处理 122/200」），不含文件内部百分比与 speed
-                progressLabel.Text = $"正在处理 {lastFileIndex}/{lastFileTotal}  {lastFileName}";
+                var speed = string.IsNullOrEmpty(lastSpeed) ? "" : $"  ·  {lastSpeed}";
+                var pct = lastFileTotal == 1
+                    ? $"[{lastWithinPercent}%]"
+                    : $"[当前 {lastWithinPercent}%]";
+                progressLabel.Text = $"正在处理 {lastFileIndex}/{lastFileTotal} {pct}{speed}  {lastFileName}";
             }
         }
 
@@ -927,6 +1027,9 @@ public class MainForm : Form
             var preset = FFmpegPresets.GetPreset(presetName);
             if (preset is not null)
             {
+                var summary = $"预设: {preset.Name}\n容器: {preset.Format ?? "-"}  编码族: {preset.VideoCodecFamily ?? "-"}\n长边: {(preset.Dimension > 0 ? preset.Dimension.ToString() : "保持源尺寸")}  质量: {(preset.VideoQuality > 0 ? preset.VideoQuality.ToString("0.##") : "-")}\n音频: {preset.AudioCodec ?? "-"}/{(preset.AudioBitrate > 0 ? $"{preset.AudioBitrate / 1000}k" : "-")}";
+                toolTip.SetToolTip(presetCombo, summary);
+
                 var detail = AboutContent.PresetDetail(preset).TrimEnd();
                 AppendLog(SessionLogLevel.Info, $"--- 预设详情 [{preset.Name}] ---\n{detail}");
             }
@@ -979,6 +1082,7 @@ public class MainForm : Form
             try { cts?.Cancel(); } catch { /* ignore */ }
             try { cts?.Dispose(); } catch { /* ignore */ }
             try { logWriter?.Dispose(); } catch { /* ignore */ }
+            toolTip.Dispose();
         }
         base.Dispose(disposing);
     }
@@ -994,6 +1098,43 @@ public class MainForm : Form
         }
         catch (ObjectDisposedException) { /* ignore */ }
         catch (InvalidOperationException) { /* ignore: 句柄销毁竞态 */ }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    private const uint FLASHW_TRAY = 2;
+    private const uint FLASHW_TIMERNOFG = 12;
+
+    private void FlashWindow()
+    {
+        try
+        {
+            if (IsHandleCreated)
+            {
+                var fi = new FLASHWINFO
+                {
+                    cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<FLASHWINFO>(),
+                    hwnd = Handle,
+                    dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG,
+                    uCount = 3,
+                    dwTimeout = 0
+                };
+                FlashWindowEx(ref fi);
+            }
+        }
+        catch { /* ignore */ }
     }
 }
 

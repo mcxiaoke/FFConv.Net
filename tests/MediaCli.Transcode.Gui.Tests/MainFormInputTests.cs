@@ -290,6 +290,65 @@ public class MainFormInputTests
     }
 
     // ------------------------------------------------------------------
+    // UI/UX 增强测试
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void DragDrop_IsConfigured()
+    {
+        Ui.RunWithForm(form =>
+        {
+            Assert.True(form.AllowDrop, "窗体应启用 AllowDrop");
+            var input = Ui.Require<TextBox>(form, "inputBox");
+            Assert.True(input.AllowDrop, "输入框应启用 AllowDrop");
+            var output = Ui.Require<TextBox>(form, "outputBox");
+            Assert.True(output.AllowDrop, "输出框应启用 AllowDrop");
+        });
+    }
+
+    [Fact]
+    public void ActionButtons_HaveAccessKeysAndAccessibleNames()
+    {
+        Ui.RunWithForm(form =>
+        {
+            var btnRun = Ui.Require<Button>(form, "btnRun");
+            Assert.Contains("&R", btnRun.Text);
+            Assert.Equal("开始转码", btnRun.AccessibleName);
+
+            var btnPreview = Ui.Require<Button>(form, "btnPreview");
+            Assert.Contains("&P", btnPreview.Text);
+            Assert.Equal("预览命令", btnPreview.AccessibleName);
+
+            var btnCancel = Ui.Require<Button>(form, "btnCancel");
+            Assert.Contains("&C", btnCancel.Text);
+            Assert.Equal("取消", btnCancel.AccessibleName);
+
+            var btnClear = Ui.Require<Button>(form, "btnClear");
+            Assert.Contains("&L", btnClear.Text);
+            Assert.Equal("清空日志", btnClear.AccessibleName);
+
+            var btnOpenOutput = Ui.Require<Button>(form, "btnOpenOutput");
+            Assert.Contains("&O", btnOpenOutput.Text);
+            Assert.Equal("打开输出目录", btnOpenOutput.AccessibleName);
+        });
+    }
+
+    [Fact]
+    public void ContextMenus_AreConfigured()
+    {
+        Ui.RunWithForm(form =>
+        {
+            var input = Ui.Require<TextBox>(form, "inputBox");
+            Assert.NotNull(input.ContextMenuStrip);
+            Assert.True(input.ContextMenuStrip.Items.Count >= 3);
+
+            var log = Ui.Require<RichTextBox>(form, "logBox");
+            Assert.NotNull(log.ContextMenuStrip);
+            Assert.True(log.ContextMenuStrip.Items.Count >= 4);
+        });
+    }
+
+    // ------------------------------------------------------------------
     // 辅助
     // ------------------------------------------------------------------
 

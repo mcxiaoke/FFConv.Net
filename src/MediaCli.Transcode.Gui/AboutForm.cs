@@ -251,10 +251,10 @@ public sealed class AboutForm : Form
             FullRowSelect = true,
             Dock = DockStyle.Fill,
         };
-        list.Columns.Add("参数", 180);
-        list.Columns.Add("取值", 130);
-        list.Columns.Add("说明", 400);
-        list.Columns.Add("状态", 90);
+        list.Columns.Add("参数", 230);
+        list.Columns.Add("取值", 150);
+        list.Columns.Add("说明", 370);
+        list.Columns.Add("状态", 80);
 
         foreach (var o in CliOptions.All)
         {
