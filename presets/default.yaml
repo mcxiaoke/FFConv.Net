@@ -1,0 +1,477 @@
+# ===========================================
+# MediaCli FFmpeg 内置预设（唯一事实源，随 npm 包发布）
+# ===========================================
+#
+# 本文件是内置预设的唯一来源（S-4 单源化），随包发布在 presets/ 目录。
+# 用户自定义预设请写在 ~/.mediac/presets.yaml 或 cwd/presets.yaml；
+# 与内置预设同名时默认禁止覆盖，必须显式声明 `_override: true`。
+# 详细规则见 presets.example.yaml 顶部说明。
+#
+# 预设命名规则:
+#   - 视频预设: hevc_*, h264_*
+#   - 音频预设: aac_*, audio_*
+#   - 后缀含义: _2k(1920p), _4k(3840p), _high/medium/low(质量等级)
+#   - 下划线前缀 (_base_*): 仅作继承基类，不注册为可用预设
+#
+# S-4 字段约定（与 v2.0 硬编码时代的关键差异）:
+#   - videoCodecFamily : 只声明输出 codec 族 (h264|hevc|av1|vp9)，
+#                        具体编码器由 src/transcode/hwaccel.js 按 tier(解码层) 决定
+#   - audioCodec       : 音频编码器（aac|libopus|copy 等），参数由 buildAudioArgs 自动组装
+#   - filters          : "{scaleFilter}" 占位符，缩放滤镜由 tier 层按
+#                        实际硬件（scale_cuda/scale_qsv/vpp_amf/scale）生成
+#   - pre_filters      : 缩放前滤镜（三段式，可选，如反交错）
+#   - post_filters     : 缩放后滤镜（三段式，可选，如锐化）
+#
+# 模板变量:
+#   {videoBitrateK}  - 视频码率 (Kbps)
+#   {audioBitrateK}  - 音频码率 (Kbps)
+#   {videoQuality}   - 视频质量值
+#   {audioQuality}   - 音频质量值
+#   {dimension}      - 视频尺寸
+#   {framerate}      - 帧率
+#   {speed}          - 速度倍率
+#   {preset}         - 预设名称
+#
+# 码率字段（videoBitrate / audioBitrate / maxBitrate）为严格字符串，带单位写法：
+#   "233k" / "1.6M" / "800k"（1000 进制，与 CLI --video-bitrate 一致），
+#   构造时经 parseBitrate 归一为 bps。裸数字（bps）仅在程序化构造时被接受。
+# ===========================================
+
+# ===========================================
+# 基础预设 (作为模板，不会被直接使用)
+# ===========================================
+
+# H.264/AVC 基础预设 (输出 codec 族: h264)
+_base_h264:
+    format: ".mp4"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "H264_BASE"
+    intro: "h264|aac"
+    smartBitrate: true
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "h264"
+    audioCodec: "aac"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0"
+    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+    # 缩放滤镜占位符，由 tier 层替换为 scale_cuda / scale_qsv / vpp_amf / scale
+    filters: "{scaleFilter}"
+
+# H.265/HEVC 基础预设 (输出 codec 族: hevc)
+_base_hevc:
+    format: ".mp4"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "HEVC_BASE"
+    intro: "hevc|aac"
+    smartBitrate: true
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "hevc"
+    audioCodec: "aac"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0"
+    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+    filters: "{scaleFilter}"
+
+# AAC CBR 基础预设
+_base_aac_cbr:
+    format: ".m4a"
+    type: audio
+    prefix: ""
+    suffix: "_{audioBitrateK}"
+    description: "AAC_CBR_BASE"
+    intro: "aac_cbr|aac"
+    smartBitrate: true
+    audioCodec: "aac"
+    inputArgs: ""
+    streamArgs: "-vn -map 0:a -map_metadata 0"
+    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+
+# ===========================================
+# H.264 视频预设
+# ===========================================
+
+# 2K 高画质 (收藏级, VMAF 96+)
+h264_2kh:
+    extends: _base_h264
+    videoQuality: 20
+    maxBitrate: 12M
+    audioBitrate: 256k
+    dimension: 1920
+
+# 2K 标准 (VMAF 94 黄金线)
+h264_2k:
+    extends: _base_h264
+    videoQuality: 23
+    maxBitrate: 8M
+    audioBitrate: 192k # 192 Kbps
+    dimension: 1920
+
+# 2K 低质量 (轻量分享, VMAF 90)
+h264_2kl:
+    extends: _base_h264
+    videoQuality: 26
+    maxBitrate: 5M
+    audioBitrate: 128k
+    dimension: 1920
+
+# ===========================================
+# H.264 视频预设 (4K)
+# ===========================================
+
+# 4K 高画质
+h264_4kh:
+    extends: _base_h264
+    videoQuality: 22
+    maxBitrate: 22M
+    audioBitrate: 256k
+    dimension: 3840
+
+# 4K 标准
+h264_4k:
+    extends: _base_h264
+    videoQuality: 25
+    maxBitrate: 16M # 16 Mbps
+    audioBitrate: 192k # 192 Kbps
+    dimension: 3840
+
+# 4K 低质量
+h264_4kl:
+    extends: _base_h264
+    videoQuality: 28
+    maxBitrate: 10M
+    audioBitrate: 128k
+    dimension: 3840
+
+# ===========================================
+# HEVC 视频预设
+# ===========================================
+
+# 4K 高质量 (VMAF 96+)
+hevc_4kh:
+    extends: _base_hevc
+    videoQuality: 22
+    maxBitrate: 20M
+    audioBitrate: 256k # 256 Kbps
+    dimension: 3840
+
+# 4K 标准 (VMAF 94.5 黄金线)
+hevc_4k:
+    extends: _base_hevc
+    videoQuality: 25
+    maxBitrate: 14M
+    audioBitrate: 256k # 256 Kbps
+    dimension: 3840
+
+# 4K 中等 (轻量分享)
+hevc_4kl:
+    extends: _base_hevc
+    videoQuality: 28
+    maxBitrate: 9M
+    audioBitrate: 192k # 192 Kbps
+    dimension: 3840
+
+# 2K 高质量 (收藏级, VMAF 96.5)
+hevc_2kh:
+    extends: _base_hevc
+    videoQuality: 20
+    maxBitrate: 12M
+    audioBitrate: 256k # 256 Kbps
+    dimension: 1920
+
+# 2K 标准 (VMAF 94.5 黄金线) - 默认推荐
+hevc_2k:
+    extends: _base_hevc
+    videoQuality: 23
+    maxBitrate: 8M
+    audioBitrate: 192k # 192 Kbps
+    dimension: 1920
+
+# 2K 低质量 (轻量分享, VMAF 91.5)
+hevc_2kl:
+    extends: _base_hevc
+    videoQuality: 26
+    maxBitrate: 5M
+    audioBitrate: 128k # 128 Kbps
+    dimension: 1920
+
+# 2K 极低 (极限防爆盘)
+hevc_2kt:
+    extends: _base_hevc
+    videoQuality: 29
+    maxBitrate: 3M
+    audioBitrate: 96k # 96 Kbps
+    dimension: 1920
+    framerate: 30
+
+# ===========================================
+# AV1 视频预设 (现代主流推荐，高压缩比)
+# ===========================================
+
+# AV1 基础预设 (输出 codec 族: av1)
+# 编码器由 src/transcode/hwaccel.js 按 tier 决定：cuda/d3d→av1_nvenc、qsv→av1_qsv、
+# amf→av1_amf、cpu→libsvtav1（SW 编码很慢，CPU 层作兜底）。
+_base_av1:
+    format: ".mp4"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "AV1_BASE"
+    intro: "av1|aac"
+    smartBitrate: true
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "av1"
+    audioCodec: "aac"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0"
+    outputArgs: "-movflags +faststart -movflags use_metadata_tags"
+    filters: "{scaleFilter}"
+
+# AV1 2K 高质量 (1920p, 质量28, 码率10M, 收藏级 VMAF 98+)
+av1_2kh:
+    extends: _base_av1
+    videoQuality: 28
+    maxBitrate: 10M
+    audioBitrate: 256k # 256 Kbps
+    dimension: 1920
+
+# AV1 2K 标准 (1920p, 质量33, 码率6M, VMAF 95 黄金线) - 现代硬编主推默认
+av1_2k:
+    extends: _base_av1
+    videoQuality: 33
+    maxBitrate: 6M
+    audioBitrate: 192k # 192 Kbps
+    dimension: 1920
+
+# AV1 2K 低质量 (1920p, 质量38, 码率3.5M, 便携分享 VMAF 91)
+av1_2kl:
+    extends: _base_av1
+    videoQuality: 38
+    maxBitrate: 3.5M
+    audioBitrate: 128k # 128 Kbps
+    dimension: 1920
+
+# AV1 2K 极低 (1920p, 质量42, 码率2M, 极限体积分享)
+av1_2kt:
+    extends: _base_av1
+    videoQuality: 42
+    maxBitrate: 2M
+    audioBitrate: 96k
+    dimension: 1920
+
+# AV1 720p 标准 (1280p, 质量34, 码率3M, 移动端/微信黄金档)
+av1_720p:
+    extends: _base_av1
+    videoQuality: 34
+    maxBitrate: 3M
+    audioBitrate: 128k
+    dimension: 1280
+
+# ===========================================
+# AV1 视频预设 (4K)
+# ===========================================
+
+# AV1 4K 高质量 (3840p, 质量30, 码率18M)
+av1_4kh:
+    extends: _base_av1
+    videoQuality: 30
+    maxBitrate: 18M
+    audioBitrate: 256k # 256 Kbps
+    dimension: 3840
+
+# AV1 4K 标准 (3840p, 质量35, 码率12M, 4K黄金平衡点)
+av1_4k:
+    extends: _base_av1
+    videoQuality: 35
+    maxBitrate: 12M
+    audioBitrate: 192k # 192 Kbps
+    dimension: 3840
+
+# AV1 4K 低质量 (3840p, 质量40, 码率7M)
+av1_4kl:
+    extends: _base_av1
+    videoQuality: 40
+    maxBitrate: 7M
+    audioBitrate: 128k # 128 Kbps
+    dimension: 3840
+
+# ===========================================
+# VP9 视频预设（NVENC 不支持 VP9 硬编 → 恒走 CPU：libvpx-vp9；旧 Intel 卡可 vp9_qsv）
+# 输出 .webm + 音频 libopus；质量用 CRF（libvpx-vp9 纯 CRF 需 -b:v 0，由 buildEncoderArgs cpu 分支产出）
+# CRF 值域 0–63，越小越高质量；档位对齐 hevc_2k*（超好→低）
+# ===========================================
+
+# VP9 基础预设（输出 codec 族: vp9）
+_base_vp9:
+    format: ".webm"
+    type: video
+    prefix: "[SHANA] "
+    suffix: "_{preset}"
+    description: "VP9_BASE"
+    intro: "vp9|libopus"
+    smartBitrate: false
+    dimension: 3840
+    framerate: 0
+    speed: 0
+    videoCodecFamily: "vp9"
+    audioCodec: "libopus"
+    inputArgs: ""
+    streamArgs: "-map_metadata 0"
+    # webm/mkv 族 muxer，不用 mp4 专属的 -movflags
+    outputArgs: ""
+    filters: "{scaleFilter}"
+
+# 2K 标准 (1920p, CRF 36) - 默认推荐
+vp9_2k:
+    extends: _base_vp9
+    videoQuality: 36
+    audioBitrate: 192k # 192 Kbps
+    dimension: 1920
+
+# 4K 标准
+vp9_4k:
+    extends: _base_vp9
+    videoQuality: 38
+    audioBitrate: 192k # 192 Kbps
+    dimension: 3840
+
+# ===========================================
+# 音频预设
+# ===========================================
+
+# 从视频中提取音频 (复制音频流)
+audio_extract:
+    extends: _base_aac_cbr
+    prefix: ""
+    suffix: "_audio"
+    audioCodec: "copy"
+    streamArgs: "-vn -map 0:a:0 -map_metadata 0"
+
+# AAC 高码率 (256 Kbps)
+aac_high:
+    extends: _base_aac_cbr
+    audioBitrate: 256k
+
+# AAC 中码率 (192 Kbps)
+aac_medium:
+    extends: _base_aac_cbr
+    audioBitrate: 192k
+
+# AAC 低码率 (128 Kbps)
+aac_low:
+    extends: _base_aac_cbr
+    audioBitrate: 128k
+
+# AAC HE (别名，兼顾旧规范与单测)
+aac_he:
+    extends: _base_aac_cbr
+    audioBitrate: 96k
+
+# AAC 人声 (极低码率，适合语音)
+aac_voice:
+    extends: _base_aac_cbr
+    smartBitrate: false
+    audioBitrate: 48k # 48 Kbps
+
+# ===========================================
+# 码率参考表
+# ===========================================
+#
+# YouTube 推荐视频码率 (SDR):
+# ┌─────────┬───────────────┬────────────────┐
+# │ 分辨率  │ 标准码率      │ 高质量码率     │
+# ├─────────┼───────────────┼────────────────┤
+# │ 8K      │ 80-160 Mbps   │ 120-240 Mbps   │
+# │ 4K      │ 35-45 Mbps    │ 53-68 Mbps     │
+# │ 1440p   │ 16 Mbps       │ 24 Mbps        │
+# │ 1080p   │ 8 Mbps        │ 12 Mbps        │
+# │ 720p    │ 5 Mbps        │ 7.5 Mbps       │
+# │ 480p    │ 2.5 Mbps      │ 4 Mbps         │
+# │ 360p    │ 1 Mbps        │ 1.5 Mbps       │
+# └─────────┴───────────────┴────────────────┘
+#
+# HEVC NVENC CQ 模式码率参考:
+# ┌───────┬──────────┐
+# │ CQ值  │ 码率     │
+# ├───────┼──────────┤
+# │ 22    │ ~16 Mbps │
+# │ 24    │ ~12 Mbps │
+# │ 26    │ ~9 Mbps  │
+# │ 28    │ ~6 Mbps  │
+# │ 30    │ ~5 Mbps  │
+# │ 32    │ ~4 Mbps  │
+# │ 34    │ ~3 Mbps  │
+# │ 36    │ ~2 Mbps  │
+# │ 38    │ ~1.5 Mbps│
+# │ 40    │ ~1.3 Mbps│
+# │ 42    │ ~1 Mbps  │
+# │ 50    │ ~600 Kbps│
+# └───────┴──────────┘
+#
+#
+# ===========================================
+# 预设码率缩放机制与心智模型说明 (scaleBitrateByResolution)
+# ===========================================
+#
+# 1. 核心机制：预设自闭环独立负责制（锚点机制）
+#    - 预设中的 `videoBitrate` 代表该预设在其声明的 `dimension` 分辨率档位下的名义目标码率。
+#    - 公式：scale = (实际输出像素 / 锚点理论像素) ^ 0.75
+#    - 锚点理论像素 = 源尺寸按预设目标长边等比缩放后的像素数。
+#
+# 2. 行为特征（容易产生直觉误区之处）：
+#    - 【大压小 不缩放】：当源分辨率 >= 预设分辨率时（例如 4K 源压入 hevc_2k 或 hevc_low），
+#      输出达到预设目标尺寸，实际像素 == 锚点理论像素，scale 恒为 1.0！
+#      系统忠实执行预设声明的 videoBitrate（如 low-001 写了 8M，压成 540p 依然使用 8M）。
+#      编写预设时各分辨率档位必须明确指定适合自身的码率，系统不会自动向下阶梯折算。
+#    - 【小跑大 触发降档】：当源分辨率 < 预设分辨率时（例如 1080p 源跑 4K 预设），受系统
+#      “禁止拉伸放大”安全策略限制，输出停留在 1080p，实际像素只有 4K 锚点的 25%，
+#      触发 (0.25)^0.75 ≈ 0.3536 降档保护（8M 预设自动降为 ~2.8M），避免小片套大码率虚耗带宽。
+#    - 【源文件码率木桶原则】：计算后的目标码率经 minNoZero(..., srcVideoBitrate) 保护，
+#      绝不会超过源视频原本的码率。
+#
+# ===========================================
+# 权威主流视频编码质量模式 (CRF / CQ) 参考基准
+# ===========================================
+#
+# 来源依据：FFmpeg 官方 Wiki、HandBrake 官方文档、SVT-AV1 用户指南、NVIDIA NVENC SDK
+#
+# 1. 各编码标准官方基准：
+#    - H.264 (libx264):
+#      * 刻度 0-51，官方默认值 23，推荐可用区间 17-28。
+#      * 17-18 为视觉无损；每 ±6 码率翻倍或减半。
+#    - H.265 / HEVC (libx265):
+#      * 刻度 0-51，官方默认值 28（视觉对标 x264 CRF 23，体积约为其一半）。
+#      * 高保真与影视压制主流甜点位为 20-24。
+#    - AV1 (libsvtav1):
+#      * 刻度 0-63，官方默认推荐平衡点 30，高画质 20-26，常规 25-35。
+#
+# 2. HandBrake 官方分分辨率推荐阶梯 (RF / CRF):
+#    ┌──────────────┬──────────────────┬──────────────────┬─────────────────┐
+#    │ 分辨率       │ H.264 (x264)     │ H.265 (x265)     │ AV1 (SVT-AV1)   │
+#    ├──────────────┼──────────────────┼──────────────────┼─────────────────┤
+#    │ 720p (HD)    │ 19 - 23          │ 19 - 23          │ 25 - 35         │
+#    │ 1080p (FHD)  │ 20 - 24          │ 20 - 24          │ 25 - 35         │
+#    │ 4K (2160p)   │ 22 - 28          │ 22 - 28          │ 25 - 40         │
+#    └──────────────┴──────────────────┴──────────────────┴─────────────────┘
+#    注：高分辨率（4K）人眼对单像素噪点不敏感，CRF 可比 1080p 放宽 1~2 档，兼顾清晰度与体积。
+#        动漫/二次元（Anime）线条硬、色块平，建议在基准上调紧 1~2 档（减小 CRF）保线条。
+#
+# 3. 硬件质量自适应补偿 (Hardware VMAF Offset):
+#    - NVENC/QSV/AMF 硬件 CQ 刻度比 CPU CRF 宽松（相同数字码率偏大）。
+#    - 本项目通过真机 VMAF 标定自动追加偏移（src/transcode/hwaccel.js）：
+#      hw-h264: +7 | hw-hevc: +5 | hw-av1: 0
+#    - 确保同一预设在 CPU 软解软编与 GPU 硬件加速下，输出的肉眼主观画质高度对齐。
+#
+# 4. 推荐架构模式：
+#    - 现代预设优先采用“CRF/CQ 恒定质量 + maxBitrate 峰值封顶 (VBV Cap)”组合：
+#      设置 videoBitrate: 0，videoQuality 指定目标质量，同时配置 maxBitrate。
+#      平时由 CRF 自适应分配码率，复杂大动态场景由 maxBitrate 兜底削平，兼顾画质与播放安全。

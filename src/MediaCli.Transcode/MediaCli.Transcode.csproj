@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\..\presets\default.yaml" Link="presets\default.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\presets\default.yaml" Link="presets\default.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
