@@ -32,13 +32,24 @@ public class MainFormScreenshotTests
         return path;
     }
 
-    /// <summary>默认状态：空输入、auto 参数、就绪。</summary>
+    /// <summary>
+    /// 默认状态：空输入、auto 参数、就绪。
+    ///
+    /// 必须等硬件探测回填状态栏再截图：探测是异步的（首次约 2–3 秒），
+    /// 抓早了只会拍到「正在探测…」占位文本，截图就无法用于核验状态栏内容。
+    /// </summary>
     [Fact]
     public void Screenshot_DefaultState()
     {
         Ui.RunWithForm(form =>
         {
             Ui.WaitUntil(() => Ui.Require<ComboBox>(form, "presetCombo").Items.Count > 0, 30_000);
+
+            var sysInfo = Ui.FindToolStripItem(form, "systemInfoLabel");
+            Assert.True(Ui.WaitUntil(
+                    () => Ui.ItemText(sysInfo).Contains("ffmpeg "), 90_000),
+                $"状态栏未在超时内回填，当前为「{Ui.ItemText(sysInfo)}」");
+
             Ui.Pump(600); // 等启动诊断写入日志
 
             var path = CaptureAndVerify(form, "01-default");
@@ -60,7 +71,7 @@ public class MainFormScreenshotTests
 
             Ui.Require<TextBox>(form, "inputBox").Text = sample!;
             Ui.Require<TextBox>(form, "outputBox").Text = Path.Combine(Path.GetTempPath(), "ffconvnet-out");
-            Ui.Require<TextBox>(form, "ffargsBox").Text = "vb=3000000,vq=23";
+            Ui.Require<TextBox>(form, "cliArgsBox").Text = "--ffargs vb=3000000,vq=23";
             Ui.Require<CheckBox>(form, "debugCheck").Checked = true;
             Ui.Require<RadioButton>(form, "modeTree").Checked = true;
 
@@ -71,9 +82,11 @@ public class MainFormScreenshotTests
 
             CaptureAndVerify(form, "02-input-filled");
 
-            // 输入计数应更新到状态栏（验证交互确实生效）
-            var status = Ui.Require<Label>(form, "statusLabel").Text;
-            Assert.Contains("已收集", status);
+            // 输入计数显示在状态栏（验证交互确实生效）
+            var collect = Ui.FindToolStripItem(form, "collectLabel");
+            Assert.True(Ui.WaitUntil(
+                    () => Ui.ItemText(collect).Contains("已收集"), 30_000),
+                $"状态栏未更新收集数量，当前为「{Ui.ItemText(collect)}」");
         });
     }
 
@@ -117,7 +130,7 @@ public class MainFormScreenshotTests
             Ui.WaitUntil(() => Ui.Require<ComboBox>(form, "presetCombo").Items.Count > 0, 30_000);
 
             Ui.Require<TextBox>(form, "inputBox").Text = sample!;
-            Ui.Require<TextBox>(form, "ffargsBox").Text = "vb=3M,an=1";
+            Ui.Require<TextBox>(form, "cliArgsBox").Text = "--ffargs vb=3M,an=1";
             form.ConfirmResult = true;
 
             Ui.Click(form, "btnPreview");

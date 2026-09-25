@@ -21,16 +21,18 @@ public class MainFormLayoutTests
         { "presetCombo", typeof(ComboBox) },
         { "hwaccelCombo", typeof(ComboBox) },
         { "decodeCombo", typeof(ComboBox) },
+        { "btnAbout", typeof(Button) },
         { "outputBox", typeof(TextBox) },
         { "btnOutput", typeof(Button) },
         { "modeDir", typeof(RadioButton) },
         { "modeTree", typeof(RadioButton) },
         { "modeFile", typeof(RadioButton) },
-        { "ffargsBox", typeof(TextBox) },
+        { "cliArgsBox", typeof(TextBox) },
         { "overrideCheck", typeof(CheckBox) },
         { "strictCheck", typeof(CheckBox) },
         { "debugCheck", typeof(CheckBox) },
         { "animeCheck", typeof(CheckBox) },
+        { "syncLogCheck", typeof(CheckBox) },
         { "btnPreview", typeof(Button) },
         { "btnRun", typeof(Button) },
         { "btnCancel", typeof(Button) },
@@ -38,8 +40,53 @@ public class MainFormLayoutTests
         { "btnOpenOutput", typeof(Button) },
         { "logBox", typeof(RichTextBox) },
         { "progressBar", typeof(ProgressBar) },
-        { "statusLabel", typeof(Label) },
+        { "progressLabel", typeof(Label) },
     };
+
+    /// <summary>
+    /// 状态栏项（需求 4）。
+    ///
+    /// 单独列出：<see cref="ToolStripStatusLabel"/> 继承自 ToolStripItem 而非 Control，
+    /// 不在 Controls 树里，因此不能用控件查找的方式断言。
+    /// </summary>
+    public static TheoryData<string> ExpectedStatusItems() => new()
+    {
+        "systemInfoLabel",
+        "collectLabel",
+        "stateLabel",
+    };
+
+    [Theory]
+    [MemberData(nameof(ExpectedStatusItems))]
+    public void StatusBarItem_Exists(string name)
+    {
+        Ui.RunWithForm(form =>
+        {
+            var item = Ui.FindToolStripItem(form, name);
+            Assert.True(item is not null, $"状态栏项缺失: {name}");
+            Assert.False(string.IsNullOrWhiteSpace(item!.Text), $"状态栏项 {name} 文本为空");
+        });
+    }
+
+    /// <summary>状态栏必须显示 CPU / GPU / ffmpeg 版本信息（需求 4）。</summary>
+    [Fact]
+    public void StatusBar_ShowsSystemInfo()
+    {
+        Ui.RunWithForm(form =>
+        {
+            var item = Ui.FindToolStripItem(form, "systemInfoLabel");
+            Assert.True(item is not null, "状态栏缺少 systemInfoLabel");
+
+            // 探测在后台进行，等它填充
+            Assert.True(Ui.WaitUntil(
+                    () => Ui.ItemText(item).Contains("CPU") || Ui.ItemText(item).Contains("ffmpeg"),
+                    60_000),
+                $"状态栏未显示机器信息，当前为「{Ui.ItemText(item)}」");
+
+            Assert.Contains("GPU", Ui.ItemText(item));
+            Assert.Contains("ffmpeg", Ui.ItemText(item));
+        });
+    }
 
     [Theory]
     [MemberData(nameof(ExpectedControls))]
@@ -262,7 +309,7 @@ public class MainFormLayoutTests
             var scale = Ui.CurrentScaleFactor();
 
             // 客户区应按缩放比放大（基准 96 → 当前 DPI）
-            var expectedWidth = (int)Math.Round(980 * scale);
+            var expectedWidth = (int)Math.Round(1000 * scale);
             Assert.True(Math.Abs(form.ClientSize.Width - expectedWidth) <= 2,
                 $"客户区宽度 {form.ClientSize.Width} 与期望 {expectedWidth} 不符（缩放 {scale:F2}）");
 
@@ -288,7 +335,7 @@ public class MainFormLayoutTests
             Ui.Pump(300);
 
             var offenders = new List<string>();
-            foreach (var name in new[] { "inputHint", "ffargsHint", "ffargsHint2" })
+            foreach (var name in new[] { "inputHint", "cliArgsHint" })
             {
                 var label = Ui.Find(form, name) as Label;
                 if (label is null)

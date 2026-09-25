@@ -112,7 +112,7 @@ public class GuiMappingTests
         var opts = new GuiOptions
         {
             Preset = "hevc_2k",
-            Ffargs = "vb=3000000,vq=23,sp=1.5,fps=30",
+            CliArgs = "--ffargs vb=3000000,vq=23,sp=1.5,fps=30",
         };
         var shim = opts.ToArgvShim();
 
@@ -126,7 +126,7 @@ public class GuiMappingTests
     [Fact]
     public void ToArgvShim_AnimeComesFromCheckbox_NotFfargs()
     {
-        var viaFfargs = new GuiOptions { Preset = "hevc_2k", Ffargs = "an=1" };
+        var viaFfargs = new GuiOptions { Preset = "hevc_2k", CliArgs = "--ffargs an=1" };
         Assert.False(viaFfargs.ToArgvShim().Anime);
 
         var viaCheckbox = new GuiOptions { Preset = "hevc_2k", Anime = true };
@@ -137,8 +137,7 @@ public class GuiMappingTests
     [Fact]
     public void ValidateFfargs_UnitSuffixedBitrate_Warns()
     {
-        var opts = new GuiOptions { Ffargs = "vb=3M" };
-        var r = opts.ValidateFfargs();
+        var r = FfargsValidator.Parse("vb=3M");
 
         Assert.True(r.HasWarnings);
         Assert.Contains(r.Warnings, w => w.Contains("裸 bps") && w.Contains("3000000"));
@@ -160,7 +159,7 @@ public class GuiMappingTests
     [Fact]
     public void ToArgvShim_EmptyFfargs_LeavesShimUntouched()
     {
-        var opts = new GuiOptions { Preset = "h264_2k", Ffargs = "   " };
+        var opts = new GuiOptions { Preset = "h264_2k", CliArgs = "" };
         var shim = opts.ToArgvShim();
 
         Assert.Equal("h264_2k", shim.Preset);
@@ -173,27 +172,31 @@ public class GuiMappingTests
     [Fact]
     public void ToArgvShim_IgnoresNonWhitelistedKeys()
     {
-        var opts = new GuiOptions { Preset = "hevc_2k", Ffargs = "evil=1,rm_rf=1" };
+        var opts = new GuiOptions { Preset = "hevc_2k", CliArgs = "--ffargs evil=1,rm_rf=1" };
         var shim = opts.ToArgvShim();
 
         Assert.Equal("hevc_2k", shim.Preset);
         Assert.Null(shim.VideoCodec);
         Assert.Null(shim.AudioCodec);
 
-        var r = opts.ValidateFfargs();
-        Assert.Equal(2, r.Warnings.Count);
-        Assert.All(r.Warnings, w => Assert.Contains("未知参数键", w));
+        // AllWarnings 是 UI 实际展示的内容，必须带上 ffargs 校验告警
+        var warnings = opts.AllWarnings();
+        Assert.Equal(2, warnings.Count);
+        Assert.All(warnings, w => Assert.Contains("未知参数键", w));
     }
 
     /// <summary>字符串型键（编码器 / 前后缀 / 元数据）正常透传。</summary>
     [Fact]
     public void ToArgvShim_AcceptsStringKeys()
     {
-        var opts = new GuiOptions { Preset = "hevc_2k", Ffargs = "vc=libx265,ac=libopus,px=PRE_,sx=_END" };
-        var r = opts.ValidateFfargs();
+        var opts = new GuiOptions
+        {
+            Preset = "hevc_2k",
+            CliArgs = "--ffargs vc=libx265,ac=libopus,px=PRE_,sx=_END",
+        };
         var shim = opts.ToArgvShim();
 
-        Assert.False(r.HasWarnings);
+        Assert.Empty(opts.AllWarnings());
         Assert.Equal("libx265", shim.VideoCodec);
         Assert.Equal("libopus", shim.AudioCodec);
         Assert.Equal("PRE_", shim.Prefix);
@@ -314,7 +317,7 @@ public class GuiMappingTests
             OutputMode = "dir",
             Hwaccel = "auto",        // UI 下拉框默认值
             DecodeMode = "auto",
-            Ffargs = ffargs,
+            CliArgs = $"--ffargs {ffargs}",
             Anime = true,
         };
         var guiPreset = FFmpegPresets.CreateFromArgv(gui.ToArgvShim());

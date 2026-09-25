@@ -104,7 +104,9 @@ public class MainFormInputTests
         {
             var log = Ui.Require<RichTextBox>(form, "logBox");
             Assert.True(log.ReadOnly);
-            Assert.False(log.WordWrap, "日志应禁用自动换行以便阅读命令行");
+            // 需求：日志自动换行、不要横向滚动条（命令行长，换行比横向拖动易读）
+            Assert.True(log.WordWrap, "日志应启用自动换行");
+            Assert.Equal(RichTextBoxScrollBars.Vertical, log.ScrollBars);
         });
     }
 
@@ -140,7 +142,7 @@ public class MainFormInputTests
         Ui.RunWithForm(form =>
         {
             Ui.Require<TextBox>(form, "inputBox").Text = sample;
-            Ui.Require<TextBox>(form, "ffargsBox").Text = "vb=3M";
+            Ui.Require<TextBox>(form, "cliArgsBox").Text = "--ffargs vb=3M";
             form.ConfirmResult = false;   // 用户看到提示后选择放弃
 
             Ui.Click(form, "btnPreview");
@@ -160,7 +162,7 @@ public class MainFormInputTests
         Ui.RunWithForm(form =>
         {
             Ui.Require<TextBox>(form, "inputBox").Text = sample;
-            Ui.Require<TextBox>(form, "ffargsBox").Text = "vb=3M";
+            Ui.Require<TextBox>(form, "cliArgsBox").Text = "--ffargs vb=3M";
             form.ConfirmResult = true;
 
             Ui.Click(form, "btnPreview");
@@ -179,7 +181,7 @@ public class MainFormInputTests
         Ui.RunWithForm(form =>
         {
             Ui.Require<TextBox>(form, "inputBox").Text = sample;
-            Ui.Require<TextBox>(form, "ffargsBox").Text = "vb=3000000,vq=23";
+            Ui.Require<TextBox>(form, "cliArgsBox").Text = "--ffargs vb=3000000,vq=23";
 
             Ui.Click(form, "btnPreview");
             Assert.True(Ui.WaitUntil(() => !form.IsRunning && LogText(form).Contains("ffmpeg -"),
@@ -195,12 +197,13 @@ public class MainFormInputTests
     {
         Ui.RunWithForm(form =>
         {
-            var placeholder = Ui.Require<TextBox>(form, "ffargsBox").PlaceholderText;
+            var placeholder = Ui.Require<TextBox>(form, "cliArgsBox").PlaceholderText;
 
             Assert.False(string.IsNullOrWhiteSpace(placeholder));
-            // 带单位的码率写法会被 core 静默丢弃，不能作为示例
+            // 参数框现在是 mediac CLI 写法，示例应体现 -- 前缀
+            Assert.Contains("--", placeholder);
+            // ffargs 里带单位的码率会被 core 静默丢弃，不能作为示例
             Assert.DoesNotContain("vb=3M", placeholder);
-            Assert.Contains("vb=", placeholder);
         });
     }
 

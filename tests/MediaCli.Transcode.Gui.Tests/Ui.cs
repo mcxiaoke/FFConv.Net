@@ -124,11 +124,56 @@ internal static class Ui
         }
     }
 
-    /// <summary>按 Name 递归查找控件（等价于 UI 自动化的查找键）。</summary>
+    /// <summary>
+    /// 按 Name 递归查找控件（等价于 UI 自动化的查找键）。
+    ///
+    /// 同时覆盖 <see cref="ToolStripItem"/>：状态栏的标签不是 <see cref="Control"/>，
+    /// 挂在 <c>StatusStrip.Items</c> 上，仅用 <c>Controls.Find</c> 永远找不到它们。
+    /// </summary>
     public static Control? Find(Control root, string name)
     {
         var found = root.Controls.Find(name, searchAllChildren: true);
-        return found.Length > 0 ? found[0] : null;
+        if (found.Length > 0) return found[0];
+        return null;
+    }
+
+    /// <summary>按 Name 查找状态栏项（ToolStripItem 不是 Control）。</summary>
+    public static ToolStripItem? FindToolStripItem(Control root, string name)
+    {
+        foreach (var strip in AllControls(root).OfType<StatusStrip>())
+        {
+            foreach (ToolStripItem item in strip.Items)
+            {
+                if (string.Equals(item.Name, name, StringComparison.Ordinal)) return item;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 读取状态栏项的文本。
+    ///
+    /// 必须经此封装：<c>ToolStripItem.Text</c> 在 .NET 8 中标注为 <c>string?</c>，
+    /// 直接 <c>item.Text.Contains(...)</c> 会触发 CS8602（本项目把警告当错误）。
+    /// </summary>
+    public static string ItemText(ToolStripItem? item) => item?.Text ?? "";
+
+    /// <summary>递归枚举控件树（含自身）。</summary>
+    public static IEnumerable<Control> AllControls(Control root)
+    {
+        yield return root;
+        foreach (Control c in root.Controls)
+        {
+            foreach (var d in AllControls(c)) yield return d;
+        }
+    }
+
+    /// <summary>按 Name 查找控件或状态栏项，并断言存在。</summary>
+    public static void RequireAny(Control root, string name)
+    {
+        var control = Find(root, name);
+        var item = control is null ? FindToolStripItem(root, name) : null;
+        Assert.True(control is not null || item is not null, $"控件/状态栏项缺失: {name}");
     }
 
     /// <summary>按 Name 查找并断言存在，返回强类型控件。</summary>
@@ -155,6 +200,30 @@ internal static class Ui
             using var form = new TestableMainForm();
             form.Show();
             Pump(400); // 等句柄创建 + Shown 事件里的启动诊断完成
+            try
+            {
+                action(form);
+            }
+            finally
+            {
+                try { form.Close(); } catch { /* 关窗失败不影响测试结论 */ }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 构造并显示「使用说明」窗口后执行测试体。
+    ///
+    /// 与 <see cref="RunWithForm"/> 同理：必须 Show()，否则控件不可见、
+    /// PerformClick 之类的交互会静默失效。
+    /// </summary>
+    public static void RunWithAbout(Action<AboutForm> action)
+    {
+        RunInSta(() =>
+        {
+            using var form = new AboutForm();
+            form.Show();
+            Pump(400);
             try
             {
                 action(form);
