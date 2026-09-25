@@ -11,39 +11,41 @@ namespace MediaCli.Transcode.Gui;
 /// 职责边界：只做 UI 与交互；转码语义全部委托给 core，
 /// 选项映射在 <see cref="GuiOptions"/>，编排在 <see cref="TranscodeSession"/>。
 /// </summary>
-public sealed class MainForm : Form
+public class MainForm : Form
 {
     // ---- 输入 ----
-    private readonly TextBox inputBox = new();
-    private readonly Button btnFile = new();
-    private readonly Button btnDir = new();
+    // 每个可交互控件都带 Name：既是可访问性标识，也是 UI 测试的查找键
+    // （测试通过 Controls.Find(name, searchAllChildren: true) 定位，不依赖坐标）。
+    private readonly TextBox inputBox = new() { Name = "inputBox" };
+    private readonly Button btnFile = new() { Name = "btnFile" };
+    private readonly Button btnDir = new() { Name = "btnDir" };
 
     // ---- 参数 ----
-    private readonly ComboBox presetCombo = new();
-    private readonly ComboBox hwaccelCombo = new();
-    private readonly ComboBox decodeCombo = new();
-    private readonly TextBox outputBox = new();
-    private readonly Button btnOutput = new();
-    private readonly RadioButton modeDir = new();
-    private readonly RadioButton modeTree = new();
-    private readonly RadioButton modeFile = new();
-    private readonly TextBox ffargsBox = new();
-    private readonly CheckBox overrideCheck = new();
-    private readonly CheckBox strictCheck = new();
-    private readonly CheckBox debugCheck = new();
-    private readonly CheckBox animeCheck = new();
+    private readonly ComboBox presetCombo = new() { Name = "presetCombo" };
+    private readonly ComboBox hwaccelCombo = new() { Name = "hwaccelCombo" };
+    private readonly ComboBox decodeCombo = new() { Name = "decodeCombo" };
+    private readonly TextBox outputBox = new() { Name = "outputBox" };
+    private readonly Button btnOutput = new() { Name = "btnOutput" };
+    private readonly RadioButton modeDir = new() { Name = "modeDir" };
+    private readonly RadioButton modeTree = new() { Name = "modeTree" };
+    private readonly RadioButton modeFile = new() { Name = "modeFile" };
+    private readonly TextBox ffargsBox = new() { Name = "ffargsBox" };
+    private readonly CheckBox overrideCheck = new() { Name = "overrideCheck" };
+    private readonly CheckBox strictCheck = new() { Name = "strictCheck" };
+    private readonly CheckBox debugCheck = new() { Name = "debugCheck" };
+    private readonly CheckBox animeCheck = new() { Name = "animeCheck" };
 
     // ---- 操作 ----
-    private readonly Button btnPreview = new();
-    private readonly Button btnRun = new();
-    private readonly Button btnCancel = new();
-    private readonly Button btnClear = new();
-    private readonly Button btnOpenOutput = new();
+    private readonly Button btnPreview = new() { Name = "btnPreview" };
+    private readonly Button btnRun = new() { Name = "btnRun" };
+    private readonly Button btnCancel = new() { Name = "btnCancel" };
+    private readonly Button btnClear = new() { Name = "btnClear" };
+    private readonly Button btnOpenOutput = new() { Name = "btnOpenOutput" };
 
     // ---- 日志与进度 ----
-    private readonly RichTextBox logBox = new();
-    private readonly ProgressBar progressBar = new();
-    private readonly Label statusLabel = new();
+    private readonly RichTextBox logBox = new() { Name = "logBox" };
+    private readonly ProgressBar progressBar = new() { Name = "progressBar" };
+    private readonly Label statusLabel = new() { Name = "statusLabel" };
     private readonly System.Windows.Forms.Timer flushTimer = new();
 
     private readonly LogSink sink = new();
@@ -53,6 +55,9 @@ public sealed class MainForm : Form
     private volatile string lastSpeed = "";
     private volatile bool progressDirty;
     private string? lastOutputDir;
+
+    /// <summary>当前是否有任务在跑（供 UI 测试与外部状态展示）。</summary>
+    public bool IsRunning => running is not null;
 
     public MainForm()
     {
@@ -73,6 +78,18 @@ public sealed class MainForm : Form
 
         FormClosing += OnFormClosing;
         Shown += (_, _) => StartupDiagnostics();
+
+        // 缩放基准必须最后设置。
+        //
+        // 纯代码创建的 Form 默认 AutoScaleMode.Inherit 且 AutoScaleDimensions=(0,0)，
+        // 即"完全不缩放"（设计器生成的窗体都会显式设，代码写窗体时极易漏掉）。
+        // 后果：在 >96 DPI 的屏幕上字体按缩放比放大（实测 150%），控件却仍是代码里的
+        // 像素尺寸，固定布局被挤爆——按钮、复选框文字被裁掉。
+        //
+        // 顺序很关键：Font 的 setter 会重算 AutoScaleDimensions，所以必须在设置 Font
+        // 与全部布局之后再落基准；否则基准被覆盖为当前 DPI，比值变 1.0 而依旧不缩放。
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);   // 布局按 96 DPI 设计
     }
 
     // ==================================================================
@@ -99,6 +116,7 @@ public sealed class MainForm : Form
 
         var hint = new Label
         {
+            Name = "inputHint",
             Text = "每行一个路径；目录会被递归扫描。也可直接粘贴。",
             ForeColor = Color.Gray,
             AutoSize = true,
@@ -117,11 +135,18 @@ public sealed class MainForm : Form
 
     private void BuildParamGroup()
     {
+        // 高度按内容精确排布，避免控件互相压盖或贴到边框：
+        //   28  预设/hwaccel/解码模式
+        //   66  输出目录
+        //   104 输出模式
+        //   136 自定义参数
+        //   160/176 两行说明
+        //   196 复选框行
         var box = new GroupBox
         {
             Text = "参数",
             Location = new Point(12, 124),
-            Size = new Size(956, 216),
+            Size = new Size(956, 236),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
 
@@ -158,35 +183,48 @@ public sealed class MainForm : Form
         modeFile.Text = "file";
         modeFile.SetBounds(218, 104, 60, 20);
 
-        var lblArgs = new Label { Text = "自定义参数", AutoSize = true, Location = new Point(14, 142) };
-        ffargsBox.SetBounds(90, 138, 856, 23);
+        var lblArgs = new Label { Text = "自定义参数", AutoSize = true, Location = new Point(14, 140) };
+        ffargsBox.SetBounds(90, 136, 856, 23);
         ffargsBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        ffargsBox.PlaceholderText = "例如 vb=3M,vq=23,sp=1.0,an=1";
+        ffargsBox.PlaceholderText = "例如 vb=3000000,vq=23,sp=1.5（码率写裸 bps）";
 
+        // 说明文字拆成两行：单行放不下会在分组框右缘被硬截断（实测 1037px > 最小窗口的 794px）。
+        // 两行都必须与上下相邻控件留出间距，见 MainFormLayoutTests.SingleLineText_IsNotClipped。
         var ffHint = new Label
         {
-            Text = "白名单别名：vb/vbit(码率) vq(质量) vc(视频编码器) ab(音频码率) aq(音频质量) ac(音频编码器) " +
-                   "px/sx(前后缀) sp(速度) dm(尺寸) fps(帧率) md(元数据) an(动漫)。强制软解请用「解码模式 = cpu」。",
+            Name = "ffargsHint",
+            Text = "别名：vb码率 vq质量 vc编码器 ab音频码率 aq质量 ac编码器 sp速度 dm尺寸 fps帧率 md元数据",
             ForeColor = Color.Gray,
             AutoSize = false,
-            Location = new Point(14, 164),
+            Location = new Point(14, 161),
+            Size = new Size(930, 16),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+        };
+
+        var ffHint2 = new Label
+        {
+            Name = "ffargsHint2",
+            Text = "码率写裸 bps（如 vb=3000000，带单位会被丢弃）；强制软解选「解码模式 = cpu」",
+            ForeColor = Color.Gray,
+            AutoSize = false,
+            Location = new Point(14, 177),
             Size = new Size(930, 16),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
 
         overrideCheck.Text = "覆盖已有";
-        overrideCheck.SetBounds(16, 184, 86, 20);
+        overrideCheck.SetBounds(16, 198, 86, 20);
         strictCheck.Text = "严格模式";
-        strictCheck.SetBounds(110, 184, 86, 20);
+        strictCheck.SetBounds(110, 198, 86, 20);
         debugCheck.Text = "详细日志";
-        debugCheck.SetBounds(204, 184, 86, 20);
+        debugCheck.SetBounds(204, 198, 86, 20);
         animeCheck.Text = "动漫模式";
-        animeCheck.SetBounds(298, 184, 86, 20);
+        animeCheck.SetBounds(298, 198, 86, 20);
 
         box.Controls.AddRange([
             lblPreset, presetCombo, lblHw, hwaccelCombo, lblDec, decodeCombo,
             lblOut, outputBox, btnOutput, lblMode, modeDir, modeTree, modeFile,
-            lblArgs, ffargsBox, ffHint, overrideCheck, strictCheck, debugCheck, animeCheck,
+            lblArgs, ffargsBox, ffHint, ffHint2, overrideCheck, strictCheck, debugCheck, animeCheck,
         ]);
         Controls.Add(box);
     }
@@ -196,7 +234,7 @@ public sealed class MainForm : Form
         var box = new GroupBox
         {
             Text = "操作",
-            Location = new Point(12, 348),
+            Location = new Point(12, 368),
             Size = new Size(956, 64),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
@@ -231,8 +269,8 @@ public sealed class MainForm : Form
         var box = new GroupBox
         {
             Text = "日志",
-            Location = new Point(12, 420),
-            Size = new Size(956, 328),
+            Location = new Point(12, 440),
+            Size = new Size(956, 308),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
         };
 
@@ -258,6 +296,24 @@ public sealed class MainForm : Form
         box.Controls.AddRange([logBox, progressBar, statusLabel]);
         Controls.Add(box);
     }
+
+    // ==================================================================
+    // 模态交互钩子（可测试性接缝）
+    // ==================================================================
+
+    /// <summary>
+    /// 确认类对话框（有取消语义）。默认弹 MessageBox。
+    ///
+    /// 声明为 <c>virtual</c> 是为了让 UI 测试能覆写它：模态框会阻塞调用线程，
+    /// 无人值守的自动化一旦撞上就会永久挂起。生产路径行为不变。
+    /// </summary>
+    protected virtual bool Confirm(string message, string title) =>
+        MessageBox.Show(this, message, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning)
+        == DialogResult.OK;
+
+    /// <summary>提示类对话框（无取消语义）。同上，供 UI 测试覆写。</summary>
+    protected virtual void Notify(string message, string title) =>
+        MessageBox.Show(this, message, title, MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     // ==================================================================
     // 输入
@@ -360,16 +416,29 @@ public sealed class MainForm : Form
         var opts = ReadOptions();
         if (opts.Inputs.Count == 0)
         {
-            MessageBox.Show(this, "请先选择输入文件或目录。", "缺少输入",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Notify("请先选择输入文件或目录。", "缺少输入");
             return;
         }
+
+        // ffargs 校验结果必须在开跑前摆到台面上。
+        // 若只交给 core 的 applyFfargs，`vb=3M` 这类写法会被**静默丢弃**——
+        // 用户会以为参数生效了，实际没有。这正是 FfargsValidator 存在的意义。
+        var ffargsResult = opts.ValidateFfargs();
+        if (ffargsResult.HasWarnings)
+        {
+            var detail = string.Join(Environment.NewLine + "  · ", ffargsResult.Warnings);
+            if (!Confirm(
+                "自定义参数存在不会生效的写法：" + Environment.NewLine + Environment.NewLine +
+                "  · " + detail + Environment.NewLine + Environment.NewLine +
+                "仍要继续吗？（这些项将被忽略，其余参数正常应用）",
+                "自定义参数提示")) return;
+        }
+
         if (doit && !overrideCheck.Checked)
         {
-            var r = MessageBox.Show(this,
+            if (!Confirm(
                 "未勾选「覆盖已有」：目标文件已存在时会自动跳过（core 契约）。继续执行？",
-                "确认执行", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
-            if (r != DialogResult.OK) return;
+                "确认执行")) return;
         }
 
         sink.Clear();
@@ -383,6 +452,7 @@ public sealed class MainForm : Form
         SetBusy(true);
 
         AppendLog(SessionLogLevel.Info, doit ? "=== 开始转码 ===" : "=== 预览命令（不写盘）===");
+        foreach (var w in ffargsResult.Warnings) AppendLog(SessionLogLevel.Warn, w);
         cts = new CancellationTokenSource();
         var token = cts.Token;
 
@@ -586,8 +656,7 @@ public sealed class MainForm : Form
         }
         if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
         {
-            MessageBox.Show(this, "输出目录尚未确定或不存在。", "无法打开",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Notify("输出目录尚未确定或不存在。", "无法打开");
             return;
         }
         try
@@ -596,8 +665,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"打开目录失败：{ex.Message}", "错误",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Notify($"打开目录失败：{ex.Message}", "错误");
         }
     }
 
@@ -675,10 +743,9 @@ public sealed class MainForm : Form
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         if (running is null) return;
-        var r = MessageBox.Show(this,
+        if (!Confirm(
             "转码任务仍在运行。关闭窗口会终止它，是否继续？",
-            "确认关闭", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-        if (r != DialogResult.Yes)
+            "确认关闭"))
         {
             e.Cancel = true;
             return;
