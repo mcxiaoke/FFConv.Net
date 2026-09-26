@@ -98,7 +98,7 @@ $RECYCLE.BIN/
 lib/
 debug/
 target/
-build/
+/build/
 build-win/
 build-linux/
 *.cfg

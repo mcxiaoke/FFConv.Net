@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
-using MediaCli.Transcode.Build;
 using MediaCli.Transcode.Bin;
 using MediaCli.Transcode.Hardware;
 using MediaCli.Transcode.Model;
