@@ -57,7 +57,19 @@ pwsh ./publish.ps1
 3. **文件存放**：
    - 文档统一存放于 `docs/`。
    - 临时文件、排查脚本与中间产物必须放在 `temp/`，禁止在项目根目录堆放临时文件。
-4. **Git 与变更日志**：
-   - 遵循用户指令，严禁未经许可自发 `git push`。
+4. **Git 限制**：
+   - 严禁未经许可自发 `git push`；禁止未经用户要求自发 commit。
    - Commit message 采用英文规范（如 `feat(...)`, `fix(...)`, `refactor(...)`）。
-   - 重要改动需在 `docs/CHANGES-YYYYMMDD.md` 顶部追加简要摘要。
+
+## 任务交付验收准则 (Checklist)
+
+每次代码改动或任务完成后，在向用户汇报前**必须**严格执行以下全量验证，缺一不可：
+
+1. **Build 零错误**：运行 `dotnet build -c Release`，确认 0 警告、0 错误。
+2. **Test 全量通过**：运行 `dotnet test`，确认所有核心类库与 GUI 测试用例全部通过（0 失败、0 跳过）。
+3. **真实流程测试（运行不 Crash）**：
+   - 必须执行至少一次**真实的端到端流程测试**（运行 `pwsh tests/MediaCli.Transcode.Gui.Tests/smoke-exe.ps1`）。
+   - 验证真实可执行文件启动、参数面板交互、真实音视频输入、预览规划与转码链路、退出码为 0 且全程无任何 Crash。
+4. **变动记录追溯**：
+   - 重要变动在 `docs/CHANGES-YYYYMMDD.md` 顶部记录真实时间（GMT+8）与准确改动摘要。
+

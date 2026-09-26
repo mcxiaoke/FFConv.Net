@@ -95,9 +95,17 @@ public class MainForm : Form
         Text = $"FFConv v{BuildInfo.AppVersion} — 音视频批量转码工具";
         try
         {
-            var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
-            if (File.Exists(icoPath)) Icon = new Icon(icoPath);
-            else Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("MediaCli.Transcode.Gui.Assets.app.ico");
+            if (stream is not null)
+            {
+                Icon = new Icon(stream);
+            }
+            else
+            {
+                var exe = Environment.ProcessPath ?? Application.ExecutablePath;
+                if (!string.IsNullOrEmpty(exe) && File.Exists(exe))
+                    Icon = Icon.ExtractAssociatedIcon(exe);
+            }
         }
         catch { /* ignore */ }
 
