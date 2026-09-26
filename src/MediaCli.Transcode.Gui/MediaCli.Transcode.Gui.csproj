@@ -23,4 +23,8 @@
     <ProjectReference Include="..\MediaCli.Transcode\MediaCli.Transcode.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Costura.Fody" Version="6.2.0" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>

@@ -24,6 +24,11 @@ public static class Program
                 PrintHelp();
                 return 0;
             }
+            if (args[0] is "--version" or "-v" or "version")
+            {
+                Console.WriteLine($"mediac-dotnet {BuildInfo.DisplayString}");
+                return 0;
+            }
             var command = args[0].ToLowerInvariant();
             var rest = args[1..];
             return command switch
@@ -50,8 +55,8 @@ public static class Program
 
     private static void PrintHelp()
     {
-        Console.WriteLine("""
-            mediac-dotnet — media-cli.js src/transcode 的 C#/.NET 10 移植版
+        Console.WriteLine($"""
+            mediac-dotnet v{BuildInfo.AppVersion} — media-cli.js src/transcode 的 C#/.NET 移植版
 
             用法:
               mediac-dotnet presets                                    列出全部预设
