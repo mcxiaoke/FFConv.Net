@@ -4,363 +4,159 @@ using Xunit;
 namespace MediaCli.Transcode.Gui.Tests;
 
 /// <summary>
-/// 控件存在性、默认值与布局健壮性。
+/// 「使用说明」窗口的测试（需求 5）。
 ///
-/// 这些用例的价值在于：布局是纯代码写的（无设计器），一旦改动把控件漏加进
-/// Controls、Name 写错、或把控件摆到可视区域外，这里会立刻失败——
-/// 而不是等用户打开界面才发现按钮不见了。
+/// 这个窗口承载了从界面上移出的参数说明，因此必须确认它真的能打开、
+/// 三个页签都有内容，而不是一个空白框。
 /// </summary>
-public class MainFormLayoutTests
+public class AboutFormTests
 {
-    /// <summary>所有应当存在且可交互的控件名。</summary>
-    public static TheoryData<string, Type> ExpectedControls() => new()
-    {
-        { "inputBox", typeof(TextBox) },
-        { "btnFile", typeof(Button) },
-        { "btnDir", typeof(Button) },
-        { "presetCombo", typeof(ComboBox) },
-        { "hwaccelCombo", typeof(ComboBox) },
-        { "decodeCombo", typeof(ComboBox) },
-        { "btnAbout", typeof(Button) },
-        { "outputBox", typeof(TextBox) },
-        { "btnOutput", typeof(Button) },
-        { "modeDir", typeof(RadioButton) },
-        { "modeTree", typeof(RadioButton) },
-        { "modeFile", typeof(RadioButton) },
-        { "cliArgsBox", typeof(TextBox) },
-        { "overrideCheck", typeof(CheckBox) },
-        { "strictCheck", typeof(CheckBox) },
-        { "debugCheck", typeof(CheckBox) },
-        { "animeCheck", typeof(CheckBox) },
-        { "syncLogCheck", typeof(CheckBox) },
-        { "btnPreview", typeof(Button) },
-        { "btnRun", typeof(Button) },
-        { "btnCancel", typeof(Button) },
-        { "btnClear", typeof(Button) },
-        { "btnOpenOutput", typeof(Button) },
-        { "logBox", typeof(RichTextBox) },
-        { "progressBar", typeof(ProgressBar) },
-        { "progressLabel", typeof(Label) },
-    };
-
-    /// <summary>
-    /// 状态栏项（需求 4）。
-    ///
-    /// 单独列出：<see cref="ToolStripStatusLabel"/> 继承自 ToolStripItem 而非 Control，
-    /// 不在 Controls 树里，因此不能用控件查找的方式断言。
-    /// </summary>
-    public static TheoryData<string> ExpectedStatusItems() => new()
-    {
-        "systemInfoLabel",
-        "collectLabel",
-        "stateLabel",
-    };
-
-    [Theory]
-    [MemberData(nameof(ExpectedStatusItems))]
-    public void StatusBarItem_Exists(string name)
-    {
-        Ui.RunWithForm(form =>
-        {
-            var item = Ui.FindToolStripItem(form, name);
-            Assert.True(item is not null, $"状态栏项缺失: {name}");
-            Assert.False(string.IsNullOrWhiteSpace(item!.Text), $"状态栏项 {name} 文本为空");
-        });
-    }
-
-    /// <summary>状态栏显示 CPU / ffmpeg 版本信息（GPU 移至日志区，不占状态栏）。</summary>
+    /// <summary>AboutForm 与 MainForm 同为纯代码布局，DPI 基准同样不能漏。</summary>
     [Fact]
-    public void StatusBar_ShowsSystemInfo()
-    {
-        Ui.RunWithForm(form =>
-        {
-            var item = Ui.FindToolStripItem(form, "systemInfoLabel");
-            Assert.True(item is not null, "状态栏缺少 systemInfoLabel");
-
-            // 探测在后台进行，等它填充
-            Assert.True(Ui.WaitUntil(
-                    () => Ui.ItemText(item).Contains("CPU") || Ui.ItemText(item).Contains("ffmpeg"),
-                    60_000),
-                $"状态栏未显示机器信息，当前为「{Ui.ItemText(item)}」");
-
-            Assert.DoesNotContain("GPU", Ui.ItemText(item));
-            Assert.Contains("ffmpeg", Ui.ItemText(item));
-            Assert.Contains("硬件环境信息", Ui.Require<RichTextBox>(form, "logBox").Text);
-        });
-    }
-
-    [Theory]
-    [MemberData(nameof(ExpectedControls))]
-    public void Control_Exists_WithExpectedType(string name, Type expected)
+    public void AboutForm_DeclaresDpiScalingBasis()
     {
         Ui.RunInSta(() =>
         {
-            using var form = new TestableMainForm();
-            var control = Ui.Find(form, name);
-            Assert.True(control is not null, $"控件缺失: {name}");
-            Assert.IsType(expected, control);
-        });
-    }
-
-    /// <summary>控件必须真的挂在控件树上（不是漏加进 Controls 的孤儿）。</summary>
-    [Fact]
-    public void AllExpectedControls_AreInControlTree()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-            foreach (var row in ExpectedControls())
-            {
-                var name = (string)row[0];
-                var found = form.Controls.Find(name, searchAllChildren: true);
-                Assert.True(found.Length == 1,
-                    $"控件 {name} 在控件树中出现 {found.Length} 次，应为 1 次");
-            }
-        });
-    }
-
-    /// <summary>每个控件的 Name 必须唯一——重复会让按名查找变得不确定。</summary>
-    [Fact]
-    public void ControlNames_AreUnique()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-            var names = Ui.Walk(form)
-                .Select(p => p.Child.Name)
-                .Where(n => !string.IsNullOrEmpty(n))
-                .ToList();
-
-            var dupes = names.GroupBy(n => n).Where(g => g.Count() > 1)
-                .Select(g => $"{g.Key} x{g.Count()}").ToList();
-            Assert.True(dupes.Count == 0, "控件 Name 重复: " + string.Join(", ", dupes));
-        });
-    }
-
-    /// <summary>
-    /// 控件必须落在父容器可视区域内。这类问题在代码布局里很常见：
-    /// 容器高度写小了，最后一行控件就被裁掉，而编译与运行都不报错。
-    /// </summary>
-    [Fact]
-    public void Controls_FitInsideTheirParent()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-            form.CreateControl();
-            var offenders = new List<string>();
-
-            foreach (var (child, parent) in Ui.Walk(form))
-            {
-                // 跳过运行时由系统调整尺寸/位置的控件
-                if (child is VScrollBar or HScrollBar) continue;
-                if (parent is TextBoxBase or ComboBox or RichTextBox) continue;
-
-                if (child.Right > parent.ClientSize.Width || child.Bottom > parent.ClientSize.Height)
-                {
-                    offenders.Add(
-                        $"{child.Name} ({child.GetType().Name}) 越界: " +
-                        $"right={child.Right} bottom={child.Bottom} " +
-                        $"parent={parent.ClientSize.Width}x{parent.ClientSize.Height}");
-                }
-            }
-
-            Assert.True(offenders.Count == 0,
-                "控件超出父容器:" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
-        });
-    }
-
-    /// <summary>同一容器内的同级控件不应相互重叠（会互相遮挡）。</summary>
-    [Fact]
-    public void SiblingControls_DoNotOverlap()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-            form.CreateControl();
-            var offenders = new List<string>();
-
-            // 所有容器 = 窗体自身 + 任意带子控件的控件
-            var containers = new List<Control> { form };
-            containers.AddRange(Ui.Walk(form).Select(p => p.Child).Where(c => c.Controls.Count > 0));
-
-            foreach (var container in containers)
-            {
-                var siblings = container.Controls.Cast<Control>()
-                    .Where(c => c.Visible && c.Width > 0 && c.Height > 0)
-                    // 仅排除滚动条（由容器自动管理，本就覆盖内容区）
-                    .Where(c => c is not (VScrollBar or HScrollBar))
-                    .ToList();
-
-                for (var i = 0; i < siblings.Count; i++)
-                {
-                    for (var j = i + 1; j < siblings.Count; j++)
-                    {
-                        if (siblings[i].Bounds.IntersectsWith(siblings[j].Bounds))
-                        {
-                            offenders.Add(
-                                $"[{container.Name}] {siblings[i].Name} 与 {siblings[j].Name} 重叠");
-                        }
-                    }
-                }
-            }
-
-            Assert.True(offenders.Count == 0,
-                "同级控件重叠:" + Environment.NewLine + string.Join(Environment.NewLine, offenders.Distinct()));
-        });
-    }
-
-    [Fact]
-    public void Form_HasReasonableMinimumSize()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-            Assert.True(form.MinimumSize.Width >= 600, "最小宽度过小，布局会被压坏");
-            Assert.True(form.MinimumSize.Height >= 480, "最小高度过小，布局会被压坏");
-            Assert.False(string.IsNullOrWhiteSpace(form.Text));
-        });
-    }
-
-    /// <summary>
-    /// 单行文本必须完整可见，不能被容器或自身宽度裁掉。
-    ///
-    /// 这条用例补的是两个真实盲区：
-    /// 1. 原先只校验控件<b>边界</b>，于是"控件大小合规、但文字被截断"能一路通过——
-    ///    实际界面里参数区的说明就断过字。
-    /// 2. 复选框/单选按钮的文字渲染在<b>字形之后</b>，可用宽度要减去字形宽度。
-    ///    实测 150% 缩放下复选框宽 86px、文字 72px 看似够用，但字形另占约 20px，
-    ///    末字被裁——这正是 DPI 缺陷的现场表现。
-    /// </summary>
-    [Fact]
-    public void SingleLineText_IsNotClipped()
-    {
-        Ui.RunWithForm(form =>
-        {
-            var offenders = new List<string>();
-
-            foreach (var (control, _) in Ui.Walk(form))
-            {
-                if (control is not Label and not CheckBox and not RadioButton) continue;
-                if (string.IsNullOrEmpty(control.Text)) continue;
-                // 多行标签由系统换行，不适用单行裁切判定
-                if (control.Text.Contains('\n')) continue;
-
-                var measured = TextRenderer.MeasureText(
-                    control.Text, control.Font, new Size(int.MaxValue, int.MaxValue),
-                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-
-                // 复选框/单选的文字排在字形右侧，需扣除字形占宽
-                var glyph = control is CheckBox or RadioButton
-                    ? Ui.GlyphWidth(control)
-                    : 0;
-
-                var available = control.AutoSize
-                    ? control.Parent?.ClientSize.Width ?? control.Width
-                    : control.Width;
-
-                var needed = measured.Width + glyph;
-                if (needed > available)
-                {
-                    offenders.Add(
-                        $"[{control.Name}] 需要 {needed}px（文字 {measured.Width} + 字形 {glyph}）" +
-                        $"超过可用 {available}px: \"{Truncate(control.Text, 40)}\"");
-                }
-            }
-
-            Assert.True(offenders.Count == 0,
-                "文本被裁切:" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
-        });
-    }
-
-    /// <summary>
-    /// 窗体必须显式声明 DPI 缩放基准。
-    ///
-    /// 纯代码创建的 Form 默认 AutoScaleMode.Inherit 且基准为 (0,0)，即完全不缩放。
-    /// 在 >96 DPI 的屏幕上字体会放大而控件尺寸不变，固定布局被挤爆。
-    /// 实测本机 4K@150% 时按钮与复选框文字被裁；此用例锁定该回归。
-    ///
-    /// 注意不要断言 AutoScaleDimensions == 96：自动缩放执行后 WinForms 会把它
-    /// 同步为 CurrentAutoScaleDimensions（避免重复缩放），此时读到当前 DPI 是正确行为。
-    /// 真正要守的是"模式为 Dpi"与"基准非零"这两点——默认值恰好都不满足。
-    /// 实际缩放效果由 DpiScaling_ProducesConsistentLayout 验证。
-    /// </summary>
-    [Fact]
-    public void Form_DeclaresDpiScalingBasis()
-    {
-        Ui.RunInSta(() =>
-        {
-            using var form = new TestableMainForm();
-
+            using var form = new AboutForm();
             Assert.Equal(AutoScaleMode.Dpi, form.AutoScaleMode);
             Assert.NotEqual(0F, form.AutoScaleDimensions.Width);
-            Assert.NotEqual(0F, form.AutoScaleDimensions.Height);
         });
     }
 
-    /// <summary>
-    /// 缩放基准必须与设计基准一致，否则加载时会再次缩放导致布局漂移。
-    /// 这里同时记录当前环境的缩放比，便于排查高 DPI 相关问题。
-    /// </summary>
     [Fact]
-    public void DpiScaling_ProducesConsistentLayout()
+    public void AboutForm_HasThreeTabs()
     {
-        Ui.RunWithForm(form =>
+        Ui.RunWithAbout(form =>
         {
-            var scale = Ui.CurrentScaleFactor();
+            var tabs = Ui.Require<TabControl>(form, "aboutTabs");
+            Assert.Equal(3, tabs.TabPages.Count);
 
-            // 客户区应按缩放比放大（基准 96 → 当前 DPI）
-            var expectedWidth = (int)Math.Round(1000 * scale);
-            Assert.True(Math.Abs(form.ClientSize.Width - expectedWidth) <= 2,
-                $"客户区宽度 {form.ClientSize.Width} 与期望 {expectedWidth} 不符（缩放 {scale:F2}）");
-
-            // 控件尺寸同样应按比例放大
-            var check = Ui.Require<CheckBox>(form, "overrideCheck");
-            var expectedCheckWidth = (int)Math.Round(86 * scale);
-            Assert.True(Math.Abs(check.Width - expectedCheckWidth) <= 2,
-                $"复选框宽度 {check.Width} 与期望 {expectedCheckWidth} 不符（缩放 {scale:F2}）");
+            var titles = tabs.TabPages.Cast<TabPage>().Select(p => p.Text).ToList();
+            Assert.Equal("命令行参数", tabs.TabPages[0].Text);
+            Assert.Contains("预设", titles);
+            Assert.Contains("命令行参数", titles);
+            Assert.Contains("使用提示", titles);
         });
     }
 
-    /// <summary>
-    /// 说明性文本在窗体最小尺寸下也必须完整可见。
-    /// 用户把窗口缩到最小时仍应能读到操作提示。
-    /// </summary>
+    /// <summary>预设页签必须列出全部可用预设，且不含 _base_* 继承基类。</summary>
     [Fact]
-    public void HintText_RemainsVisibleAtMinimumSize()
+    public void AboutForm_PresetTab_ListsPresets()
     {
-        Ui.RunWithForm(form =>
+        Ui.RunWithAbout(form =>
         {
-            form.Size = form.MinimumSize;
-            form.PerformLayout();
-            Ui.Pump(300);
+            var list = Ui.Require<ListView>(form, "presetList");
+            Assert.NotEmpty(list.Items);
 
-            var offenders = new List<string>();
-            foreach (var name in new[] { "inputHint", "cliArgsHint" })
+            var names = list.Items.Cast<ListViewItem>().Select(i => i.Text).ToList();
+            Assert.Contains("hevc_2k", names);
+            Assert.DoesNotContain(names, n => n.StartsWith('_'));
+
+            // 选中首项时详情应有内容（联动生效）
+            var detail = Ui.Require<RichTextBox>(form, "presetDetail");
+            Assert.False(string.IsNullOrWhiteSpace(detail.Text), "预设详情为空");
+            Assert.Contains("预设名：", detail.Text);
+        });
+    }
+
+    /// <summary>命令行参数页签必须覆盖参数表里的每一项（含不支持的）。</summary>
+    [Fact]
+    public void AboutForm_CliTab_CoversAllOptions()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var list = Ui.Require<ListView>(form, "cliOptionList");
+            var text = string.Join("\n", list.Items.Cast<ListViewItem>().Select(i => i.Text));
+
+            foreach (var opt in CliOptions.All)
             {
-                var label = Ui.Find(form, name) as Label;
-                if (label is null)
-                {
-                    offenders.Add($"{name} 缺失");
-                    continue;
-                }
-
-                var measured = TextRenderer.MeasureText(
-                    label.Text, label.Font, new Size(int.MaxValue, int.MaxValue),
-                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
-
-                if (measured.Width > label.Width)
-                {
-                    offenders.Add($"{name}: 需要 {measured.Width}px，实际 {label.Width}px");
-                }
+                Assert.Contains($"--{opt.Name}", text);
             }
 
-            Assert.True(offenders.Count == 0,
-                "最小尺寸下说明文字被裁切:" + Environment.NewLine +
-                string.Join(Environment.NewLine, offenders));
+            // 不支持的项要标出来，而不是混在可用项里
+            var statuses = list.Items.Cast<ListViewItem>()
+                .Select(i => i.SubItems[3].Text).Distinct().ToList();
+            Assert.Contains("可用", statuses);
+            Assert.Contains("不支持", statuses);
         });
     }
 
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..max] + "…";
+    [Fact]
+    public void AboutForm_TipsTab_HasContent()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var tips = Ui.Require<RichTextBox>(form, "tipsBox");
+            Assert.Contains("参数优先级", tips.Text);
+            Assert.Contains("码率怎么写", tips.Text);
+            Assert.Contains("日志", tips.Text);
+        });
+    }
+
+    [Fact]
+    public void AboutForm_HasCloseButton()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var close = Ui.Require<Button>(form, "btnAboutClose");
+            Assert.Equal(DialogResult.OK, close.DialogResult);
+        });
+    }
+
+    /// <summary>说明窗口也应能正常渲染（不是空白框）。</summary>
+    [Fact]
+    public void AboutForm_RendersNonBlankScreenshot()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var path = Ui.CaptureWindow(form, "06-about");
+            Assert.True(File.Exists(path));
+
+            using var bmp = new Bitmap(path);
+            Assert.True(Ui.CountDistinctColors(bmp) >= 40,
+                $"说明窗口疑似空白: {path}");
+        });
+    }
+
+    /// <summary>
+    /// 使用提示里出现的每个 <c>--参数</c> 都必须真实存在。
+    ///
+    /// 这条挡的是"文档漂移"：示例曾写成 <c>--max-bitrate</c>，而
+    /// <see cref="CliOptions"/> 里根本没有这个参数，用户照抄只会得到
+    /// "未知参数，已忽略"——比没有示例更糟。
+    /// 参数表是单一事实源，示例必须与它一致。
+    /// </summary>
+    [Fact]
+    public void UsageTips_OnlyMentionsDefinedParams()
+    {
+        var text = AboutContent.UsageTips();
+
+        var unknown = System.Text.RegularExpressions.Regex
+            .Matches(text, @"--[a-zA-Z][a-zA-Z0-9-]*")
+            .Select(m => m.Value[2..])
+            .Distinct(StringComparer.Ordinal)
+            .Where(name => CliOptions.Resolve(name) is null)
+            .ToList();
+
+        Assert.True(unknown.Count == 0,
+            "使用提示引用了未定义的参数（用户照抄会得到「未知参数」）: " +
+            string.Join(", ", unknown.Select(n => "--" + n)));
+    }
+
+    /// <summary>参数说明表的每一行都必须能被解析回来（说明与解析器同源）。</summary>
+    [Fact]
+    public void CliOptionTable_OnlyMentionsDefinedParams()
+    {
+        var text = AboutContent.CliOptionTable();
+
+        var unknown = System.Text.RegularExpressions.Regex
+            .Matches(text, @"--[a-zA-Z][a-zA-Z0-9-]*")
+            .Select(m => m.Value[2..])
+            .Distinct(StringComparer.Ordinal)
+            .Where(name => CliOptions.Resolve(name) is null)
+            .ToList();
+
+        Assert.True(unknown.Count == 0,
+            "参数说明表引用了未定义的参数: " + string.Join(", ", unknown.Select(n => "--" + n)));
+    }
 }

@@ -34,7 +34,11 @@ public class MainForm : Form
     private readonly ComboBox hwaccelCombo = new() { Name = "hwaccelCombo" };
     private readonly ComboBox decodeCombo = new() { Name = "decodeCombo" };
     private readonly Button btnAbout = new() { Name = "btnAbout" };
+    private readonly Button btnParams = new() { Name = "btnParams" };
+    // 参数框改为「回显」：真值由高级参数面板写回，这里只展示最终会传给 core 的文本。
+    // 只读是刻意的——文本与面板表单若都能改，就会出现两个真值源。
     private readonly TextBox cliArgsBox = new() { Name = "cliArgsBox" };
+    private readonly Label argsStatus = new() { Name = "argsStatus" };
     private readonly CheckBox overrideCheck = new() { Name = "overrideCheck" };
     private readonly CheckBox strictCheck = new() { Name = "strictCheck" };
     private readonly CheckBox debugCheck = new() { Name = "debugCheck" };
@@ -88,7 +92,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "FFConv — 音视频批量转码工具";
+        Text = $"FFConv v{BuildInfo.AppVersion} — 音视频批量转码工具";
         try
         {
             var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
@@ -287,19 +291,23 @@ public class MainForm : Form
         btnAbout.Click += OnShowAbout;
 
         var lblArgs = new Label { Name = "lblArgs", Text = "自定义参数", AutoSize = true, Location = new Point(14, 70) };
-        cliArgsBox.SetBounds(80, 66, 882, 23);
+        cliArgsBox.SetBounds(80, 66, 762, 23);
         cliArgsBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        cliArgsBox.PlaceholderText = "FFConv CLI 写法，例：--video-bitrate 3M --video-quality 23";
+        cliArgsBox.ReadOnly = true;
+        cliArgsBox.Font = new Font("Consolas", 9F);
+        cliArgsBox.BackColor = Color.FromArgb(0xF5, 0xF5, 0xF5);
+        // 只读仍可选中复制：这串文本与命令行写法一致，用户能直接拿去 CLI 用。
+        cliArgsBox.TextChanged += (_, _) => RefreshArgsStatus();
 
-        // 仅保留一行指引；详细说明移到「使用说明」窗口（需求：不再堆在界面上）
-        var argsHint = new Label
-        {
-            Name = "cliArgsHint",
-            Text = "写法与 FFConv CLI 一致；全部参数与示例见「使用说明…」",
-            ForeColor = Color.Gray,
-            AutoSize = true,
-            Location = new Point(80, 92),
-        };
+        btnParams.Text = "高级参数…";
+        btnParams.SetBounds(852, 65, 110, 25);
+        btnParams.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        btnParams.Click += OnShowParams;
+
+        // 状态行：不点开面板也能知道现在有几项生效、有没有告警
+        argsStatus.ForeColor = Color.Gray;
+        argsStatus.AutoSize = true;
+        argsStatus.Location = new Point(80, 92);
 
         overrideCheck.Text = "覆盖已有";
         overrideCheck.SetBounds(16, 122, 86, 20);
@@ -314,10 +322,30 @@ public class MainForm : Form
 
         box.Controls.AddRange([
             lblPreset, presetCombo, lblHw, hwaccelCombo, lblDec, decodeCombo, btnAbout,
-            lblArgs, cliArgsBox, argsHint,
+            lblArgs, cliArgsBox, btnParams, argsStatus,
             overrideCheck, strictCheck, debugCheck, animeCheck, syncLogCheck,
         ]);
         Controls.Add(box);
+
+        RefreshArgsStatus();
+    }
+
+    /// <summary>参数框下方的一行状态：让「填了什么、有没有问题」不必点开面板就知道。</summary>
+    private void RefreshArgsStatus()
+    {
+        var parsed = CliArgParser.Parse(cliArgsBox.Text);
+        var count = parsed.Values.Count;
+
+        if (count == 0)
+        {
+            argsStatus.Text = parsed.Warnings.Count > 0
+                ? $"{parsed.Warnings.Count} 项告警 · 点「高级参数…」查看"
+                : "未设置附加参数 · 点「高级参数…」添加";
+            return;
+        }
+
+        var warn = parsed.Warnings.Count > 0 ? $" · {parsed.Warnings.Count} 项告警" : "";
+        argsStatus.Text = $"{count} 项生效{warn} · 点「高级参数…」修改";
     }
 
     private void BuildActionGroup()
@@ -467,6 +495,25 @@ public class MainForm : Form
     }
 
     private void OnShowAbout(object? sender, EventArgs e) => ShowAboutDialog();
+
+    /// <summary>
+    /// 「高级参数」面板（供测试覆写，避免模态阻塞）。
+    ///
+    /// 面板是参数文本的编辑器：确定后把规范化文本写回回显框。
+    /// 真值始终是这段文本，与主界面控件的关系仍是既有的「参数框 &gt; 控件」。
+    /// </summary>
+    protected virtual void ShowParamsDialog()
+    {
+        using var dlg = new ParamsForm(PresetComboValue(), cliArgsBox.Text);
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            cliArgsBox.Text = dlg.CliArgs;
+        }
+    }
+
+    private string PresetComboValue() => presetCombo.SelectedItem as string ?? "av1_2k";
+
+    private void OnShowParams(object? sender, EventArgs e) => ShowParamsDialog();
 
     // ==================================================================
     // 输入
@@ -802,6 +849,7 @@ public class MainForm : Form
         presetCombo.Enabled = !busy;
         hwaccelCombo.Enabled = !busy;
         decodeCombo.Enabled = !busy;
+        btnParams.Enabled = !busy;
         inputBox.ReadOnly = busy;
     }
 

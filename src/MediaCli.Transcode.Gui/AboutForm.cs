@@ -1,6 +1,7 @@
 using System.Text;
 using MediaCli.Transcode.Model;
 using MediaCli.Transcode.Presets;
+using MediaCli.Transcode.Support;
 
 // 消歧：Model 命名空间也有一个 Size（视频尺寸），而本文件里的 Size 都指窗口尺寸。
 using Size = System.Drawing.Size;
@@ -103,6 +104,8 @@ public static class AboutContent
     public static string UsageTips()
     {
         var sb = new StringBuilder();
+        sb.AppendLine($"FFConv {BuildInfo.DisplayString}");
+        sb.AppendLine();
         sb.AppendLine("一、参数优先级（与 FFConv 一致）");
         sb.AppendLine("    命令行单独参数  >  --ffargs 复合参数  >  预设默认值");
         sb.AppendLine("    本界面上：参数框  >  界面控件（下拉框 / 复选框）");
@@ -115,7 +118,9 @@ public static class AboutContent
         sb.AppendLine("    写 vb=3M 会被 core 静默丢弃——界面会提前告警。");
         sb.AppendLine();
         sb.AppendLine("三、常见示例");
-        sb.AppendLine("    压低体积：      --video-quality 26 --max-bitrate 4M");
+        // 示例里的参数必须真实存在：曾写成 --max-bitrate（CliOptions 未定义），
+        // 用户照抄只会得到"未知参数，已忽略"。由 UsageTips_OnlyMentionsDefinedParams 锁住。
+        sb.AppendLine("    压低体积：      --video-quality 26 --audio-bitrate 128k");
         sb.AppendLine("    强制软解：      --decode-mode cpu");
         sb.AppendLine("    只处理部分文件：--include 1080 --exclude sample");
         sb.AppendLine("    改名归档：      --prefix \"[转码] \" --suffix \"_{preset}\"");
@@ -147,7 +152,7 @@ public sealed class AboutForm : Form
 {
     public AboutForm()
     {
-        Text = "使用说明 — 预设与命令行参数";
+        Text = $"使用说明 — 预设与命令行参数 (v{BuildInfo.AppVersion})";
         ClientSize = new Size(860, 620);
         MinimumSize = new Size(680, 460);
         StartPosition = FormStartPosition.CenterParent;

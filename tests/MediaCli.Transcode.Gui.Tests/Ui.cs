@@ -44,7 +44,12 @@ internal static class Ui
     /// 而真实 exe 在 150% 缩放的屏幕上会立刻暴露。实测本机为 4K@150%，
     /// 对齐前测试全绿、exe 截图文字被裁，正是这个原因。
     /// </summary>
-    public static void RunInSta(Action action)
+    /// <param name="timeoutMs">
+    /// STA 线程的等待上限。必须存在：UI 测试一旦撞上模态对话框（MessageBox 会阻塞调用线程）
+    /// 或死锁，<c>Join()</c> 会永久等待，整个测试运行就此挂死——实测踩过一次，
+    /// 10 分钟无任何输出。有了超时，这种情况会变成一条明确的失败。
+    /// </param>
+    public static void RunInSta(Action action, int timeoutMs = 240_000)
     {
         EnsureDpiAwareness();
 
@@ -62,8 +67,16 @@ internal static class Ui
             }
         });
         thread.SetApartmentState(ApartmentState.STA);
+        // 后台线程：即使真的卡死，也不阻止测试进程退出
+        thread.IsBackground = true;
         thread.Start();
-        thread.Join();
+
+        if (!thread.Join(timeoutMs))
+        {
+            throw new TimeoutException(
+                $"STA UI 线程在 {timeoutMs} ms 内未结束：疑似模态对话框阻塞或死锁。" +
+                "检查用例里是否弹出了 MessageBox（UI 测试必须走可覆写的钩子）。");
+        }
 
         if (captured is not null)
         {
@@ -222,6 +235,38 @@ internal static class Ui
         RunInSta(() =>
         {
             using var form = new AboutForm();
+            form.Show();
+            Pump(400);
+            try
+            {
+                action(form);
+            }
+            finally
+            {
+                try { form.Close(); } catch { /* 关窗失败不影响测试结论 */ }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 构造并显示「高级参数」面板后执行测试体。
+    ///
+    /// 同样必须 Show()：否则 PerformClick 是静默空操作（见 <see cref="RunWithForm"/>）。
+    /// </summary>
+    public static void RunWithParams(Action<ParamsForm> action, string presetName = "hevc_2k", string cliArgs = "")
+        => RunWithParamsCore(() => new ParamsForm(presetName, cliArgs), action);
+
+    /// <summary>
+    /// 用指定工厂创建面板（需要替身类覆写模态钩子时使用，例如校验失败弹窗）。
+    /// </summary>
+    public static void RunWithParams(Func<ParamsForm> factory, Action<ParamsForm> action)
+        => RunWithParamsCore(factory, action);
+
+    private static void RunWithParamsCore(Func<ParamsForm> factory, Action<ParamsForm> action)
+    {
+        RunInSta(() =>
+        {
+            using var form = factory();
             form.Show();
             Pump(400);
             try

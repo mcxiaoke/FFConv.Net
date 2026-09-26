@@ -147,6 +147,21 @@ public static class CliArgParser
         };
     }
 
+    /// <summary>
+    /// 单值校验（供参数面板即时提示）。
+    ///
+    /// 刻意复用 <see cref="Validate"/> 而不是另写一套：面板提示与解析器判断必须是同一套规则，
+    /// 否则会出现"面板说能用、开跑却告警"的分裂。
+    /// </summary>
+    /// <returns>合法返回 true；否则返回 false 并给出面向用户的错误文案。</returns>
+    public static bool IsValidValue(CliOption option, string value, out string? error)
+    {
+        var warnings = new List<string>();
+        var ok = Validate(option, value, warnings);
+        error = warnings.Count > 0 ? warnings[^1] : null;
+        return ok;
+    }
+
     /// <summary>取值是否合法；非法时追加告警并返回 false。</summary>
     private static bool Validate(CliOption option, string value, List<string> warnings)
     {
