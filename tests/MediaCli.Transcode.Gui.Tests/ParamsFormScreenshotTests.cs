@@ -11,7 +11,7 @@ public class ParamsFormScreenshotTests
 {
 	private const int MinDistinctColors = 40;
 
-	private static void CaptureAndVerify(ParamsForm form, string name)
+	private static void CaptureAndVerify(Form form, string name)
 	{
 		string text = Ui.CaptureWindow(form, name);
 		Assert.True(File.Exists(text), "截图未生成: " + text);
@@ -19,6 +19,15 @@ public class ParamsFormScreenshotTests
 		using Bitmap bmp = new Bitmap(text);
 		int num = Ui.CountDistinctColors(bmp);
 		Assert.True(num >= 40, $"截图疑似空白（仅 {num} 种颜色）: {text}");
+	}
+
+	[Fact]
+	public void Screenshot_ParamsFlowDefault()
+	{
+		Ui.RunWithParamsFlow(form =>
+		{
+			CaptureAndVerify(form, "08-params-flow-compact");
+		});
 	}
 
 	[Fact]

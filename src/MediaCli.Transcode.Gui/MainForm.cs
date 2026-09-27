@@ -512,7 +512,7 @@ public class MainForm : Form
     /// </summary>
     protected virtual void ShowParamsDialog()
     {
-        using var dlg = new ParamsForm(PresetComboValue(), cliArgsBox.Text);
+        using var dlg = new ParamsFlowForm(PresetComboValue(), cliArgsBox.Text);
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             cliArgsBox.Text = dlg.CliArgs;

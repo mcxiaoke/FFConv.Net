@@ -254,15 +254,18 @@ internal static class Ui
     /// 同样必须 Show()：否则 PerformClick 是静默空操作（见 <see cref="RunWithForm"/>）。
     /// </summary>
     public static void RunWithParams(Action<ParamsForm> action, string presetName = "hevc_2k", string cliArgs = "")
-        => RunWithParamsCore(() => new ParamsForm(presetName, cliArgs), action);
+        => RunWithFormCore(() => new ParamsForm(presetName, cliArgs), action);
 
-    /// <summary>
-    /// 用指定工厂创建面板（需要替身类覆写模态钩子时使用，例如校验失败弹窗）。
-    /// </summary>
     public static void RunWithParams(Func<ParamsForm> factory, Action<ParamsForm> action)
-        => RunWithParamsCore(factory, action);
+        => RunWithFormCore(factory, action);
 
-    private static void RunWithParamsCore(Func<ParamsForm> factory, Action<ParamsForm> action)
+    public static void RunWithParamsFlow(Action<ParamsFlowForm> action, string presetName = "hevc_2k", string cliArgs = "")
+        => RunWithFormCore(() => new ParamsFlowForm(presetName, cliArgs), action);
+
+    public static void RunWithParamsFlow(Func<ParamsFlowForm> factory, Action<ParamsFlowForm> action)
+        => RunWithFormCore(factory, action);
+
+    private static void RunWithFormCore<T>(Func<T> factory, Action<T> action) where T : Form
     {
         RunInSta(() =>
         {
