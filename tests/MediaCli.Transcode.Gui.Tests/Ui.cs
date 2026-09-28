@@ -253,12 +253,6 @@ internal static class Ui
     ///
     /// 同样必须 Show()：否则 PerformClick 是静默空操作（见 <see cref="RunWithForm"/>）。
     /// </summary>
-    public static void RunWithParams(Action<ParamsForm> action, string presetName = "hevc_2k", string cliArgs = "")
-        => RunWithFormCore(() => new ParamsForm(presetName, cliArgs), action);
-
-    public static void RunWithParams(Func<ParamsForm> factory, Action<ParamsForm> action)
-        => RunWithFormCore(factory, action);
-
     public static void RunWithParamsFlow(Action<ParamsFlowForm> action, string presetName = "hevc_2k", string cliArgs = "")
         => RunWithFormCore(() => new ParamsFlowForm(presetName, cliArgs), action);
 

@@ -7,9 +7,14 @@ namespace MediaCli.Transcode.Model;
 public sealed class PresetUserArgs
 {
     public long VideoBitrate { get; set; }
-    public long VideoQuality { get; set; }
+    /// <summary>
+    /// 视频质量（CRF/CQ）。用 double 而非 long：CRF 允许小数（如 23.5），
+    /// 早期用 long 会让 `--video-quality 23.5` 被静默截断为 23。
+    /// </summary>
+    public double VideoQuality { get; set; }
     public long AudioBitrate { get; set; }
-    public long AudioQuality { get; set; }
+    /// <summary>音频质量（VBR），同 VideoQuality 支持小数。</summary>
+    public double AudioQuality { get; set; }
     public long Dimension { get; set; }
     public double Speed { get; set; }
     public double Framerate { get; set; }

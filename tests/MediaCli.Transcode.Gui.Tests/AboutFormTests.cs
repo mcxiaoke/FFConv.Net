@@ -230,13 +230,14 @@ public class MainFormInputTests
             Assert.True(string.IsNullOrWhiteSpace(box.PlaceholderText),
                 "只读回显不应再有占位示例，示例一律走高级参数面板");
 
-            using var panel = new ParamsForm("hevc_2k", "");
-            Assert.DoesNotContain("vb=3M", ParamsFormScanAllText(panel));
+            // 生产路径使用的是 ParamsFlowForm（ParamsForm 已作为死代码删除）
+            using var panel = new ParamsFlowForm("hevc_2k", "");
+            Assert.DoesNotContain("vb=3M", PanelScanAllText(panel));
         });
     }
 
     /// <summary>遍历面板控件树，收集全部可见文本（用于"界面有没有教错写法"这类断言）。</summary>
-    private static string ParamsFormScanAllText(Control root)
+    private static string PanelScanAllText(Control root)
     {
         var sb = new System.Text.StringBuilder();
         foreach (var c in Ui.AllControls(root)) sb.AppendLine(c.Text);

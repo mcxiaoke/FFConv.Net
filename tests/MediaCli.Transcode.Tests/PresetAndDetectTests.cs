@@ -174,6 +174,33 @@ public class PresetAndDetectTests
         Assert.Equal("", p4.Filters);
     }
 
+    /// <summary>
+    /// 回归 P3-4：CRF/CQ 允许小数，质量值不得被截断成整数。
+    /// 早期 UserArgs.VideoQuality 是 long，`--video-quality 23.5` 会被静默变成 23。
+    /// </summary>
+    [Theory]
+    [InlineData(23.5)]
+    [InlineData(20.25)]
+    [InlineData(30.0)]
+    public void CreateFromArgv_PreservesFractionalQuality(double quality)
+    {
+        FFmpegPresets.Init();
+        var p = FFmpegPresets.CreateFromArgv(new FFmpegPresets.ArgvShim { VideoQuality = quality });
+        Assert.Equal(quality, p.UserArgs.VideoQuality);
+
+        var p2 = FFmpegPresets.CreateFromArgv(new FFmpegPresets.ArgvShim { AudioQuality = quality });
+        Assert.Equal(quality, p2.UserArgs.AudioQuality);
+    }
+
+    /// <summary>克隆必须保留小数质量值（Clone 逐字段复制）。</summary>
+    [Fact]
+    public void Clone_PreservesFractionalQuality()
+    {
+        FFmpegPresets.Init();
+        var p = FFmpegPresets.CreateFromArgv(new FFmpegPresets.ArgvShim { VideoQuality = 21.75 });
+        Assert.Equal(21.75, p.Clone().UserArgs.VideoQuality);
+    }
+
     [Fact]
     public void HwDetect_ParseOutputs()
     {

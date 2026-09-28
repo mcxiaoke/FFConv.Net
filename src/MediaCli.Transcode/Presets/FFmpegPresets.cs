@@ -397,7 +397,8 @@ public static class FFmpegPresets
         else
         {
             if (argv.VideoBitrate != 0) preset.UserArgs.VideoBitrate = Helper.ParseBitrate(argv.VideoBitrate);
-            if (argv.VideoQuality > 0) preset.UserArgs.VideoQuality = (long)argv.VideoQuality;
+            // 不再 (long) 截断：CRF/CQ 允许小数（如 23.5）
+            if (argv.VideoQuality > 0) preset.UserArgs.VideoQuality = argv.VideoQuality;
         }
 
         if (argv.AudioCopy)
@@ -407,7 +408,7 @@ public static class FFmpegPresets
         else
         {
             if (argv.AudioBitrate != 0) preset.UserArgs.AudioBitrate = Helper.ParseBitrate(argv.AudioBitrate);
-            if (argv.AudioQuality > 0) preset.UserArgs.AudioQuality = (long)argv.AudioQuality;
+            if (argv.AudioQuality > 0) preset.UserArgs.AudioQuality = argv.AudioQuality;
         }
 
         if (!string.IsNullOrWhiteSpace(argv.Metadata))

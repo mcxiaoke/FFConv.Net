@@ -155,6 +155,42 @@ public class CliArgParserTests
     }
 
     /// <summary>
+    /// 回归 P3-2：hwaccel 曾是自由文本，core 对无法识别的取值会静默退化为默认链，
+    /// 与"凡是不能生效的输入都必须告警"的原则冲突。改为 Choice 后非法取值会被拦下。
+    /// 注意 d3d11va/d3d12va/dxva2 是合法别名（core 归一为 d3d），必须放行。
+    /// </summary>
+    [Theory]
+    [InlineData("vaapi")]
+    [InlineData("cuda2")]
+    [InlineData("nvenc")]
+    public void Parse_InvalidHwaccel_Warns(string value)
+    {
+        var r = CliArgParser.Parse($"--hwaccel {value}");
+        Assert.Empty(r.Accepted);
+        Assert.Single(r.Warnings);
+        Assert.Contains("不合法", r.Warnings[0]);
+    }
+
+    /// <summary>合法的 hwaccel 取值（含 d3d 系列别名）必须全部放行。</summary>
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("cuda")]
+    [InlineData("qsv")]
+    [InlineData("amf")]
+    [InlineData("d3d")]
+    [InlineData("d3d11va")]
+    [InlineData("d3d12va")]
+    [InlineData("dxva2")]
+    [InlineData("cpu")]
+    public void Parse_ValidHwaccel_IsAccepted(string value)
+    {
+        var r = CliArgParser.Parse($"--hwaccel {value}");
+        Assert.Single(r.Accepted);
+        Assert.Empty(r.Warnings);
+        Assert.Equal(value, r.Get("hwaccel"));
+    }
+
+    /// <summary>
     /// speed 的 0 是 mediac 文档化的「不变速」取值（也是 CLI 默认值），必须放行；
     /// 只拦真正越界的倍率。
     /// </summary>

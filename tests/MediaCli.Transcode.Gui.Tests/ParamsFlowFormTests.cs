@@ -111,7 +111,9 @@ public class ParamsFlowFormTests
 
             Ui.Pump(300); // 等待 trialTimer 防抖 (250ms)
             var trial = Trial(form).Text;
-            Assert.Contains("-cq 22", trial);
+            // 示意命令按软编口径给出 -crf（真实质量参数由硬件层决定：
+            // CPU/hevc 用 -crf，NVENC 用 -cq，QSV 用 -global_quality）。
+            Assert.Contains("-crf 22", trial);
         });
     }
 

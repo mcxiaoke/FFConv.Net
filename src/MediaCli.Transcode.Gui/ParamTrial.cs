@@ -117,13 +117,17 @@ public static class ParamTrial
 
 	private static string QualityFlag(string? family)
 	{
+		// 说明：此处生成的是"示意命令"（界面与快照均标注"非最终命令"）。
+		// 真实命令的质量参数由硬件层决定：CPU/hevc 用 -crf，NVENC 用 -cq，
+		// QSV 用 -global_quality，AMF 用 -qvbr_quality_level（见 HwAccel.BuildEncoderArgs）。
+		// 因此这里只按"软编"口径给出示意值，避免暗示 hevc 会用 -cq。
 		if (!(family == "h264"))
 		{
 			if (family == "vp9")
 			{
 				return "-crf";
 			}
-			return "-cq";
+			return "-crf";
 		}
 		return "-crf";
 	}
