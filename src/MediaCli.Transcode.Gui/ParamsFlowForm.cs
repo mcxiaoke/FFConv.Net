@@ -141,6 +141,14 @@ public class ParamsFlowForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Font = new Font("Microsoft YaHei UI", 9f);
 
+        // 缩放基准必须在任何 Scale() 调用之前设置。
+        // 纯代码创建的 Form 默认 AutoScaleMode.Inherit 且 AutoScaleDimensions=(0,0)，
+        // 而 Scale() 依赖 DeviceDpi——构造期控件尚无父窗体句柄，DeviceDpi 返回 96，
+        // 于是 BuildHeader/BuildFooter 里首次算出的尺寸都是 96 DPI 值。
+        // 放到最前面可让后续布局一开始就基于正确的 DPI。
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96f, 96f);
+
         var deserializeResult = ParamSerializer.Deserialize(cliArgs);
         foreach (var (k, v) in deserializeResult.Values)
         {
@@ -178,9 +186,6 @@ public class ParamsFlowForm : Form
             splitBody.SplitterDistance = Scale(200);
             flowPanel.AutoScrollPosition = new Point(0, 0);
         };
-
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96f, 96f);
     }
 
     private void BuildHeader()

@@ -103,6 +103,71 @@ public class AboutFormTests
         });
     }
 
+    /// <summary>
+    /// 回归 P0-1：关闭按钮曾被 Dock=Fill 的 TabControl 完全遮挡——
+    /// TabControl 区域覆盖整个客户区，且 z-order 上位于按钮之上，
+    /// 运行期按钮不可见也点不到（只能靠标题栏 ✕ 关闭，Esc/Enter 亦无效）。
+    /// 这里用真实命中测试锁定：按钮中心点必须由按钮自己接住。
+    /// </summary>
+    [Fact]
+    public void AboutForm_CloseButton_IsActuallyClickable()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var close = Ui.Require<Button>(form, "btnAboutClose");
+            var tabs = Ui.Require<TabControl>(form, "aboutTabs");
+
+            // 按钮必须可见且不与 TabControl 区域重叠
+            Assert.True(close.Visible, "关闭按钮不可见");
+            Assert.True(close.Width > 0 && close.Height > 0, "关闭按钮尺寸为 0");
+
+            var closeScreen = close.Parent!.RectangleToScreen(close.Bounds);
+            var tabsScreen = tabs.Parent!.RectangleToScreen(tabs.Bounds);
+            Assert.False(tabsScreen.IntersectsWith(closeScreen),
+                "TabControl 与关闭按钮区域重叠，按钮会被遮挡");
+
+            // 真实命中测试：按钮中心点必须落在按钮上
+            var center = new Point(close.Width / 2, close.Height / 2);
+            var hit = close.Parent.GetChildAtPoint(
+                close.Parent.PointToClient(close.PointToScreen(center)));
+            Assert.True(ReferenceEquals(hit, close),
+                $"关闭按钮被 \"{hit?.Name ?? "null"}\" 遮挡，用户点不到");
+
+            // Esc / Enter 也应能关闭（CancelButton / AcceptButton）
+            Assert.True(ReferenceEquals(form.CancelButton, close) || form.CancelButton is not null,
+                "关闭按钮未接入 Esc 关闭路径");
+        });
+    }
+
+    /// <summary>
+    /// 回归 P2-1：ListView 列宽不会被 AutoScaleDimensions 缩放，
+    /// 需在 Shown 时按 DPI 换算，否则 150% 下长说明文本被截成省略号。
+    /// 「说明」列使用 -2 自适应标记，必须原样保留而不是被换算成固定像素。
+    /// </summary>
+    [Fact]
+    public void AboutForm_ListViewColumns_AreScaledForDpi()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var list = Ui.Require<ListView>(form, "cliOptionList");
+            var factor = form.DeviceDpi / 96.0;
+            var cols = list.Columns.Cast<ColumnHeader>().ToDictionary(c => c.Text, c => c);
+
+            // 固定列按 DPI 换算（96 DPI 因子为 1，保持设计值）
+            Assert.Equal((int)Math.Round(230 * factor), cols["参数"].Width);
+            Assert.Equal((int)Math.Round(110 * factor), cols["取值"].Width);
+            Assert.Equal((int)Math.Round(80 * factor), cols["状态"].Width);
+
+            // 自适应列必须仍然"自适应"，不能被换算成固定宽度
+            Assert.True(cols["说明"].Width > 0, "说明列应已由 WinForms 按其内容算出实际宽度");
+
+            if (factor > 1.0)
+            {
+                Assert.True(cols["参数"].Width > 230, "高 DPI 下固定列宽未放大");
+            }
+        });
+    }
+
     /// <summary>说明窗口也应能正常渲染（不是空白框）。</summary>
     [Fact]
     public void AboutForm_RendersNonBlankScreenshot()

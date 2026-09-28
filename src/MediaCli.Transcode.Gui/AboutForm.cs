@@ -153,10 +153,17 @@ public sealed class AboutForm : Form
     public AboutForm()
     {
         Text = $"使用说明 — 预设与命令行参数 (v{BuildInfo.AppVersion})";
-        ClientSize = new Size(860, 620);
-        MinimumSize = new Size(680, 460);
+        // 窗口宽度需容得下「说明」列的最长文案（自适应列宽），
+        // 否则会出现横向滚动条——参考表应尽量一屏可读。
+        ClientSize = new Size(1140, 660);
+        MinimumSize = new Size(820, 480);
         StartPosition = FormStartPosition.CenterParent;
         Font = new Font("Microsoft YaHei UI", 9F);
+
+        // 缩放基准必须在任何布局之前设置：纯代码创建的 Form 默认 AutoScaleMode.Inherit
+        // 且 AutoScaleDimensions=(0,0)，在 >96 DPI 下字体放大而控件尺寸不变。
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);
 
         var tabs = new TabControl { Name = "aboutTabs", Dock = DockStyle.Fill };
 
@@ -165,23 +172,78 @@ public sealed class AboutForm : Form
         tabs.TabPages.Add(BuildPresetPage());
         tabs.TabPages.Add(BuildTipsPage());
 
-        Controls.Add(tabs);
-
+        // 关闭按钮放在 Dock=Bottom 的独立面板里。
+        //
+        // 不能直接把按钮 Add 到窗体：TabControl 用 Dock=Fill 覆盖整个客户区，
+        // 而 WinForms 的 z-order 规则是「后添加的位于顶层、Controls[0] 才最顶层」，
+        // 因此按钮会被 TabControl 完整盖住——运行期不可见、也点不到
+        // （实测 GetChildAtPoint(按钮中心) 命中的是 aboutTabs）。
+        // 用 Dock 分区隔开后两者区域不再重叠，从根本上消除遮挡。
+        var footer = new Panel
+        {
+            Name = "aboutFooter",
+            Dock = DockStyle.Bottom,
+            Height = 44,
+        };
         var close = new Button
         {
             Name = "btnAboutClose",
             Text = "关闭",
             DialogResult = DialogResult.OK,
         };
-        close.SetBounds(ClientSize.Width - 110, ClientSize.Height - 40, 96, 28);
+        close.SetBounds(footer.Width - 110, 8, 96, 28);
         close.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         close.Click += (_, _) => Close();
-        Controls.Add(close);
+        footer.Controls.Add(close);
 
-        // 缩放基准：与 MainForm 同理，纯代码创建的 Form 默认完全不缩放，
-        // 在 >96 DPI 下会挤坏固定像素布局。必须在 Font 与布局之后设置。
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96F, 96F);
+        // 先加 Fill 再加 Bottom，保证停靠布局按预期分配剩余空间。
+        Controls.Add(tabs);
+        Controls.Add(footer);
+
+        AcceptButton = close;
+        CancelButton = close;
+
+        // ListView 的 ColumnHeader.Width 属于"集合内的数值属性"，
+        // AutoScaleDimensions 不会缩放它——构造期 DeviceDpi 也还是默认 96。
+        // 因此在 Shown（DPI 已确定）时统一按比例换算一次，
+        // 否则 150% DPI 下字体会放大而列宽保持 96 DPI 原值，长说明文本被截成省略号。
+        Shown += (_, _) => ScaleListColumns(tabs);
+        DpiChanged += (_, _) => ScaleListColumns(tabs);
+    }
+
+    /// <summary>
+    /// 把 AboutForm 内所有 ListView 的列宽从 96 DPI 设计值换算到当前 DPI。
+    /// 用 Tag 记住设计基准值，保证多次调用（DpiChanged 会重复触发）不会累计放大。
+    /// </summary>
+    private void ScaleListColumns(Control root)
+    {
+        var factor = DeviceDpi / 96.0;
+        foreach (var list in EnumerateListViews(root))
+        {
+            foreach (ColumnHeader col in list.Columns)
+            {
+                // 负值（-1/-2）是 ListView 的"按内容/表头自适应"标记，必须原样保留，
+                // 否则会被换算成一个具体像素值而失去自适应能力。
+                if (col.Width < 0) continue;
+
+                if (col.Tag is not int baseWidth)
+                {
+                    baseWidth = col.Width;
+                    col.Tag = baseWidth;
+                }
+                var target = (int)Math.Round(baseWidth * factor);
+                if (col.Width != target) col.Width = target;
+            }
+        }
+    }
+
+    private static IEnumerable<ListView> EnumerateListViews(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            if (child is ListView lv) yield return lv;
+            foreach (var nested in EnumerateListViews(child)) yield return nested;
+        }
     }
 
     private static TabPage BuildPresetPage()
@@ -256,9 +318,12 @@ public sealed class AboutForm : Form
             FullRowSelect = true,
             Dock = DockStyle.Fill,
         };
+        // 各列基准宽度按 96 DPI 设计值给出；「说明」列用 -2 让 WinForms 按
+        // 表头与内容的实际宽度自适应（该列最长），避免高 DPI 下出现省略号。
+        // 「取值」列内容都很短（最长 "bps / 3M / 800k"），收窄后把余量让给「说明」列。
         list.Columns.Add("参数", 230);
-        list.Columns.Add("取值", 150);
-        list.Columns.Add("说明", 370);
+        list.Columns.Add("取值", 110);
+        list.Columns.Add("说明", -2);
         list.Columns.Add("状态", 80);
 
         foreach (var o in CliOptions.All)

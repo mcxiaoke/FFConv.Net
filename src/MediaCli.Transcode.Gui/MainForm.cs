@@ -110,7 +110,10 @@ public class MainForm : Form
         catch { /* ignore */ }
 
         ClientSize = new Size(1000, 800);
-        MinimumSize = new Size(880, 640);
+        // 最小尺寸必须容得下固定区（输入 110 + 输出 92 + 参数 158 + 操作 64 与各组间距）。
+        // 实测（150% DPI）：逻辑高 <700 时日志组被压到不足，进度行/进度条会与日志框重叠；
+        // 700 起 logBox 高度稳定在 148px 且互不重叠。
+        MinimumSize = new Size(880, 700);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Microsoft YaHei UI", 9F);
 
@@ -422,6 +425,9 @@ public class MainForm : Form
 
         logBox.SetBounds(14, 22, 948, 214);
         logBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        // 高度下限：窗口缩到 MinimumSize 时固定区已占满，日志区会被压成 0 高，
+        // 用户完全看不到实时输出。给一个下限让日志始终保持可用。
+        logBox.MinimumSize = new Size(0, 100);
         logBox.ReadOnly = true;
         logBox.BackColor = Color.FromArgb(250, 250, 250);
         logBox.Font = new Font("Consolas", 9F);
