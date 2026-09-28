@@ -97,11 +97,15 @@ public class MainFormInputTests
     {
         Ui.RunWithForm(form =>
         {
+            // hwaccel 只列语义上真正不同的取值：core 把 d3d11va/d3d12va/dxva2 归一为 d3d，
+            // 列四项会让用户误以为存在区别；"cpu" 也与 auto 等价（软解入口是「解码模式」）。
             var hw = Ui.Require<ComboBox>(form, "hwaccelCombo").Items.Cast<string>().ToList();
-            foreach (var expected in new[] { "auto", "cuda", "qsv", "amf", "d3d", "d3d11va", "d3d12va", "dxva2", "cpu" })
+            Assert.Equal(["auto", "cuda", "qsv", "amf", "d3d"], hw);
+            foreach (var legacyAlias in new[] { "d3d11va", "d3d12va", "dxva2", "cpu" })
             {
-                Assert.Contains(expected, hw);
+                Assert.DoesNotContain(legacyAlias, hw);
             }
+            Assert.Contains("d3d11va", Ui.Require<ComboBox>(form, "hwaccelCombo").AccessibleDescription ?? "");
 
             var dec = Ui.Require<ComboBox>(form, "decodeCombo").Items.Cast<string>().ToList();
             Assert.Equal(["auto", "gpu", "cpu"], dec);

@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 测试项目需要驱动 TranscodeSession.ForwardCoreLogForTest 等内部接缝，
+         以便在不启动真实 ffmpeg 的前提下断言日志转发行为。 -->
+    <InternalsVisibleTo Include="MediaCli.Transcode.Gui.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\MediaCli.Transcode\MediaCli.Transcode.csproj" />
   </ItemGroup>
 

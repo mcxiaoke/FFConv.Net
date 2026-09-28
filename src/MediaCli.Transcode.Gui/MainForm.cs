@@ -284,8 +284,17 @@ public class MainForm : Form
         var lblHw = new Label { Name = "lblHwaccel", Text = "hwaccel", AutoSize = true, Location = new Point(246, 34) };
         hwaccelCombo.SetBounds(304, 30, 118, 23);
         hwaccelCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        hwaccelCombo.Items.AddRange(["auto", "cuda", "qsv", "amf", "d3d", "d3d11va", "d3d12va", "dxva2", "cpu"]);
+        // 只列语义上真正不同的取值：core 把 d3d11va/d3d12va/dxva2 全部归一为 d3d
+        // （HwDetect.HwaccelAliases），列四项会让用户以为存在区别。
+        // 同时移除 "cpu"：它并不表示"强制软解"，在候选链里与 auto 完全等价
+        // （软解的正规入口是「解码模式 = cpu」），留在下拉里属于误导。
+        hwaccelCombo.Items.AddRange(["auto", "cuda", "qsv", "amf", "d3d"]);
         hwaccelCombo.SelectedIndex = 0;
+        // 说明同时写入 AccessibleDescription：既让屏幕阅读器可读，也让该文案可被自动化断言。
+        var hwHint = "硬件加速方式。d3d 涵盖 d3d11va / d3d12va / dxva2（core 内部归一为同一层）。" +
+                     "如需强制软解，请把「解码模式」设为 cpu。";
+        toolTip.SetToolTip(hwaccelCombo, hwHint);
+        hwaccelCombo.AccessibleDescription = hwHint;
 
         var lblDec = new Label { Name = "lblDecode", Text = "解码模式", AutoSize = true, Location = new Point(438, 34) };
         decodeCombo.SetBounds(502, 30, 96, 23);
@@ -533,10 +542,24 @@ public class MainForm : Form
         {
             Title = "选择媒体文件",
             Multiselect = true,
-            Filter = "媒体文件|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.flv;*.ts;*.m2ts;*.wmv;*.mpg;*.mpeg;*.m4v;" +
-                     "*.mp3;*.flac;*.wav;*.m4a;*.aac;*.opus;*.ogg;*.wma|所有文件|*.*",
+            // 过滤器名单必须与扫描器认可的类型（Helper.VideoFormats / AudioFormats）一致。
+            // 历史上这里多写了 .m2ts/.mpeg/.opus/.ogg，用户能选中却被 FfmpegScan 静默丢弃，
+            // 最终只看到"没有找到可处理的媒体文件"，无从判断真实原因。
+            Filter = BuildMediaFilter() + "|所有文件|*.*",
         };
         if (dlg.ShowDialog(this) == DialogResult.OK) AddInputLines(dlg.FileNames);
+    }
+
+    /// <summary>
+    /// 按扫描器的白名单生成文件对话框过滤器，避免"能选中但会被丢弃"的名单漂移。
+    /// </summary>
+    private static string BuildMediaFilter()
+    {
+        var exts = Helper.VideoFormats.Concat(Helper.AudioFormats)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(e => e, StringComparer.Ordinal)
+            .Select(e => "*" + e);
+        return "媒体文件|" + string.Join(";", exts);
     }
 
     private void OnPickFolder(object? sender, EventArgs e)
@@ -626,6 +649,9 @@ public class MainForm : Form
     /// </summary>
     private void SetProgressInstant(int value)
     {
+        // 防御：若外部把 Maximum 调成与 Minimum 相同（区间为 0），
+        // 下面的 v + 1 会越出 Value 的合法范围并抛 ArgumentException。
+        if (progressBar.Maximum <= progressBar.Minimum) return;
         var v = Math.Clamp(value, progressBar.Minimum, progressBar.Maximum);
         if (v == progressBar.Maximum)
         {
@@ -719,7 +745,8 @@ public class MainForm : Form
                     sink.Write(lvl, text);
                     logWriter?.Write(lvl, text, DateTime.Now);
                 },
-                OnProgress);
+                OnProgress,
+                verboseLog: opts.Debug);
             try
             {
                 var summary = session.Run(opts, doit, token);
@@ -788,18 +815,30 @@ public class MainForm : Form
             return;
         }
 
+        // 取消走的也是"正常返回"（Task 为 RanToCompletion），因此必须单独处理，
+        // 否则会把进度条刷满到 100% 却同时显示"已取消"，两者自相矛盾。
+        if (s.WasCancelled)
+        {
+            progressLabel.Text = "已取消";
+            stateLabel.Text = "已取消";
+            FinalizeLog(opts, s);
+            return;
+        }
+
         lastPercent = 100;
         SetProgressInstant(100);
         // 文案按模式区分：预览不产出文件，Processed 恒为 0，
         // 若显示「完成 0/1」会让用户以为失败——预览应显示「预览 1/1」。
-        progressLabel.Text = s.WasCancelled
-            ? "已取消"
-            : s.Preview > 0
-                ? $"预览完成 {s.Preview}/{s.Total}  ·  100%"
+        // 同理，全部失败时不能显示"已完成"，否则与日志汇总的"失败 N"冲突。
+        var allFailed = s.Failed > 0 && s.Success == 0 && s.Preview == 0;
+        progressLabel.Text = s.Preview > 0
+            ? $"预览完成 {s.Preview}/{s.Total}  ·  100%"
+            : allFailed
+                ? $"全部失败 {s.Failed}/{s.Total}"
                 : $"转码完成 {s.Processed}/{s.Total}  ·  100%";
-        stateLabel.Text = s.WasCancelled ? "已取消" : s.Preview > 0 ? "预览完成" : "已完成";
+        stateLabel.Text = s.Preview > 0 ? "预览完成" : allFailed ? "全部失败" : "已完成";
 
-        if (!s.WasCancelled && s.Success > 0)
+        if (s.Success > 0)
         {
             FlashWindow();
             try { System.Media.SystemSounds.Asterisk.Play(); } catch { }

@@ -122,13 +122,20 @@ public sealed class TranscodeSession
 
     private readonly Action<SessionLogLevel, string> log;
     private readonly Action<SessionProgress>? progress;
+    private readonly bool verboseLog;
 
     public TranscodeSession(
         Action<SessionLogLevel, string> log,
-        Action<SessionProgress>? progress = null)
+        Action<SessionProgress>? progress = null,
+        bool verboseLog = false)
     {
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.progress = progress;
+        // 「详细日志」开关必须作用到这里：core 在 Debug 下会把 ffmpeg 切到
+        // repeat+level+info（stderr 量很大），若此处仍按错误词表过滤，
+        // 用户勾选后几乎看不到额外输出，而统计块还会显示"已隐藏 N 行（勾选详细日志可全部显示）"，
+        // 提示与事实自相矛盾。
+        this.verboseLog = verboseLog;
     }
 
     /// <summary>加载预设分层（进程内只做一次）。</summary>
@@ -476,16 +483,21 @@ public sealed class TranscodeSession
             return;
         }
 
-        // 原始 ffmpeg 输出：只放行 error/warning，其余计数后丢弃
-        if (FfmpegLogFilter.ShouldKeep(line))
+        // 原始 ffmpeg 输出：默认只放行 error/warning，其余计数后丢弃；
+        // 勾选「详细日志」时原样放行（keepEverything），与 core 的 -v 级别保持一致。
+        // 否则用户勾选后几乎看不到额外输出，而统计块仍显示"已隐藏 N 行（勾选可全部显示）"。
+        if (FfmpegLogFilter.Apply(line, keepEverything: verboseLog) is { } kept)
         {
-            log(SessionLogLevel.Warn, line);
+            log(verboseLog ? SessionLogLevel.Info : SessionLogLevel.Warn, kept);
         }
         else
         {
             suppressedLines++;
         }
     }
+
+    /// <summary>供测试直接驱动日志转发（不启动真实 ffmpeg），验证详细日志开关确实生效。</summary>
+    internal void ForwardCoreLogForTest(string line) => ForwardCoreLog(line);
 
     private int suppressedLines;
 

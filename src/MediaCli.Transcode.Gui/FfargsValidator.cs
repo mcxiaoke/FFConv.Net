@@ -67,15 +67,24 @@ public static class FfargsValidator
         var accepted = new List<string>();
 
         // 同时接受 "," 与 ";"：前者是 C# CLI 的写法，后者是 JS 的写法。
+        // 注意：正因为这里按分隔符切分，字符串键的取值里无法保留 "," / ";"，
+        // 写 `px=a,b` 会被切成两段，第二段 "b" 因缺少 '=' 而落到下面的分支。
+        // 因此该分支的提示必须显式点出"取值含分隔符"这个常见真实原因，
+        // 否则用户只会看到"应为 key=value 形式"，无从知道是自己值里的逗号导致。
+        var segmentIndex = 0;
         foreach (var seg in raw.Split(new[] { ',', ';' },
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var idx = seg.IndexOf('=');
             if (idx <= 0)
             {
-                warnings.Add($"无法解析「{seg}」：应为 key=value 形式，已忽略。");
+                warnings.Add(segmentIndex > 0
+                    ? $"无法解析「{seg}」：疑似前一个取值的分隔符残留（值里不能含 , 或 ;），已忽略。"
+                    : $"无法解析「{seg}」：应为 key=value 形式，已忽略。");
+                segmentIndex++;
                 continue;
             }
+            segmentIndex++;
 
             var rawKey = seg[..idx].Trim();
             var value = seg[(idx + 1)..].Trim();
