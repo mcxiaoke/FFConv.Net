@@ -237,6 +237,18 @@ public static partial class FfmpegBuild
     private static List<string> BuildFilterArgs(TranscodeEntry entry, TempPreset tempPreset, HwPlan? hwPlan)
     {
         List<string> list = [];
+
+        // 流复制契约：-c:v copy 时 ffmpeg 会以 "Filtering and streamcopy cannot be used together"
+        // 直接拒绝任何滤镜。因此视频不重新编码时必须整段跳过滤镜组装：
+        //   - 视频侧：任何 -vf 都会让命令必然失败（缩放/变速/帧率/前后滤镜/位深对齐都算）；
+        //   - 音频侧：若仍加 atempo，则音频被变速而视频被原样复制 → 音画不同步。
+        // 注意这里必须早于 Scaled/Framerate 等判定，否则 --video-copy 与缩放/变速叠加时
+        // 会生成注定失败的 ffmpeg 命令。
+        if (tempPreset.UserArgs.VideoCodec == "copy" || tempPreset.UserArgs.VideoCopy)
+        {
+            return list;
+        }
+
         var (pre, post, _) = SplitPresetFilterSegments(tempPreset);
         double speed = HwAccel.ValidateSpeed(tempPreset.Speed);
         if (tempPreset.Scaled || tempPreset.Framerate > 0.0 || pre.Length > 0 || post.Length > 0 || speed != 1.0 || DepthAlignNeeded(entry, hwPlan, tempPreset))
@@ -391,10 +403,10 @@ public static partial class FfmpegBuild
         return list;
     }
 
-    [GeneratedRegex(@"-c:a(?::\d+)?\\s+(\\S+)")]
+    [GeneratedRegex(@"-c:a(?::\d+)?\s+(\S+)")]
     private static partial Regex RxAudioCodec();
 
-    [GeneratedRegex(@"-b:a\\s+(\\S+)")]
+    [GeneratedRegex(@"-b:a\s+(\S+)")]
     private static partial Regex RxAudioBitrate();
 
     public static string FallbackAudioEncoder(string? codecOrArgs, HashSet<string>? encoders, bool strict = false)
@@ -529,9 +541,9 @@ public static partial class FfmpegBuild
         return list;
     }
 
-    [GeneratedRegex(@"-map_metadata:s:[va]\\s+\\S+")]
+    [GeneratedRegex(@"-map_metadata:s:[va]\s+\S+")]
     private static partial Regex RxMapMetadata();
 
-    [GeneratedRegex(@"\\s+")]
+    [GeneratedRegex(@"\s+")]
     private static partial Regex RxWhitespace();
 }

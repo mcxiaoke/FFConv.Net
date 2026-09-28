@@ -44,6 +44,23 @@ public class HwAccelTests
         Assert.Equal(1280, s3.H);
     }
 
+    /// <summary>
+    /// 回归 P3-1：极端参数下短边被取偶为 0 会生成 `scale=w=2:h=0` 这类非法滤镜，
+    /// 让 ffmpeg 直接报错。输出尺寸必须钳到最小可用偶数边长 2。
+    /// </summary>
+    [Theory]
+    [InlineData(3840, 2160, 2L)]     // 目标长边极小
+    [InlineData(1, 3840, 1L)]        // 源尺寸极扁
+    [InlineData(3840, 6, 6L)]        // 短边按比例缩到 <2
+    public void CalcLongEdge_NeverEmitsZeroEdge(int srcW, int srcH, long dimension)
+    {
+        var s = HwAccel.CalcLongEdge(srcW, srcH, dimension);
+        Assert.True(s.W >= 2, $"宽必须 >= 2，实际 {s.W}");
+        Assert.True(s.H >= 2, $"高必须 >= 2，实际 {s.H}");
+        Assert.Equal(0, s.W % 2);
+        Assert.Equal(0, s.H % 2);
+    }
+
     [Theory]
     [InlineData("yuv420p10le", "10bit")]
     [InlineData("yuv420p", "8bit")]

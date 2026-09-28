@@ -67,7 +67,14 @@ public static partial class HwDetect
     // Output parsers
     // ------------------------------------------------------------------
 
-    /// <summary>解析 ffmpeg -encoders 输出（" V....D h264_nvenc   ..."）。</summary>
+    /// <summary>
+    /// 解析 ffmpeg -encoders 输出（" V....D h264_nvenc   ..."）。
+    ///
+    /// 注意排除表头说明行（" V..... = Video"）：它的前 6 位同样形如标志位，
+    /// 若直接取第 7 列会把 "=" 当成编码器名，污染集合（曾导致 Encoders 含 "="、
+    /// EncoderCount 偏大，并使"空集合=探测失败"这类判断失效）。
+    /// 编码器名以字母/数字开头，因此此处名首字符必须非 '='。
+    /// </summary>
     public static HashSet<string> ParseEncoders(string stdout)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
@@ -79,7 +86,7 @@ public static partial class HwDetect
         return set;
     }
 
-    [GeneratedRegex(@"^\s*[A-Z.]{6}\s+(\S+)")]
+    [GeneratedRegex(@"^\s*[A-Z.]{6}\s+([A-Za-z0-9_][\w.\-]*)")]
     private static partial Regex RxEncoderLine();
 
     /// <summary>解析 ffmpeg -hwaccels 输出。</summary>

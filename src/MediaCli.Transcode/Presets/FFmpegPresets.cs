@@ -11,12 +11,28 @@ public static class FFmpegPresets
 {
     private static readonly List<string> PresetNames = [];
     private static readonly Dictionary<string, FFmpegPreset> PresetMap = new(StringComparer.Ordinal);
+    private static readonly List<string> loadWarnings = [];
 
     /// <summary>Port of normalizeBitrate: "" / null / 0 → 0 (unset); otherwise parseBitrate.</summary>
     private static long NormalizeBitrate(object? value)
     {
         if (value is null or "" or 0) return 0;
         return Helper.ParseBitrate(value);
+    }
+
+    /// <summary>宽容读取码率字段：非法写法回退 0 并告警，不让整个预设失效。</summary>
+    private static long NormalizeBitrateField(Dictionary<string, object?> fields, string key)
+    {
+        if (!fields.TryGetValue(key, out var raw)) return 0;
+        try
+        {
+            return NormalizeBitrate(raw);
+        }
+        catch (Exception ex)
+        {
+            loadWarnings.Add($"字段「{key}」码率取值 {raw} 无效，已回退为 0：{ex.Message}");
+            return 0;
+        }
     }
 
     /// <summary>Port of initPresetsAsync: load layers low → high and construct FFmpegPresets.</summary>
@@ -37,12 +53,33 @@ public static class FFmpegPresets
         {
             PresetNames.Clear();
             PresetMap.Clear();
+            loadWarnings.Clear();
             foreach (var (name, fields) in merged)
             {
-                PresetMap[name] = FromFields(name, fields);
-                PresetNames.Add(name);
+                // 单个预设的字段类型错误（如 dimension: "1920abc"）不应带走全部预设。
+                // 历史上这里没有隔离：任意一个用户自定义预设写错字段，Init() 就会抛出
+                // FormatException，导致内置预设也一起消失、界面预设下拉框变空。
+                // 因此逐个预设 try/catch，坏的跳过并记录原因，其余照常注册。
+                try
+                {
+                    PresetMap[name] = FromFields(name, fields);
+                    PresetNames.Add(name);
+                }
+                catch (Exception ex)
+                {
+                    loadWarnings.Add($"预设「{name}」字段无效，已跳过：{ex.Message}");
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// 预设加载期间的非致命问题（例如单个预设字段类型错误被跳过）。
+    /// 供上层在启动日志中如实说明，而不是静默忽略。
+    /// </summary>
+    public static IReadOnlyList<string> LoadWarnings
+    {
+        get { lock (PresetMap) return [.. loadWarnings]; }
     }
 
     private static T? Get<T>(Dictionary<string, object?> fields, string key)
@@ -51,8 +88,6 @@ public static class FFmpegPresets
     /// <summary>Construct an FFmpegPreset from a resolved raw field map.</summary>
     public static FFmpegPreset FromFields(string name, Dictionary<string, object?> fields)
     {
-        var bitrateField = fields.TryGetValue("videoBitrate", out var vb) ? vb : 0;
-        _ = bitrateField;
         return new FFmpegPreset
         {
             Name = name,
@@ -69,16 +104,40 @@ public static class FFmpegPresets
             PreFilters = Get<string>(fields, "pre_filters"),
             PostFilters = Get<string>(fields, "post_filters"),
             Output = Get<string>(fields, "output"),
-            VideoBitrate = NormalizeBitrate(fields.TryGetValue("videoBitrate", out var v) ? v : 0),
-            MaxBitrate = NormalizeBitrate(fields.TryGetValue("maxBitrate", out var m) ? m : 0),
-            VideoQuality = fields.TryGetValue("videoQuality", out var vq) && vq is not null ? Convert.ToDouble(vq) : 0,
-            AudioBitrate = NormalizeBitrate(fields.TryGetValue("audioBitrate", out var ab) ? ab : 0),
-            AudioQuality = fields.TryGetValue("audioQuality", out var aq) && aq is not null ? Convert.ToDouble(aq) : 0,
-            Dimension = fields.TryGetValue("dimension", out var dim) && dim is not null ? Convert.ToInt64(dim) : 0,
-            Speed = fields.TryGetValue("speed", out var sp) && sp is not null ? Convert.ToDouble(sp) : 1,
-            Framerate = fields.TryGetValue("framerate", out var fr) && fr is not null ? Convert.ToDouble(fr) : 0,
+            VideoBitrate = NormalizeBitrateField(fields, "videoBitrate"),
+            MaxBitrate = NormalizeBitrateField(fields, "maxBitrate"),
+            VideoQuality = NumField(fields, "videoQuality", 0),
+            AudioBitrate = NormalizeBitrateField(fields, "audioBitrate"),
+            AudioQuality = NumField(fields, "audioQuality", 0),
+            Dimension = (long)NumField(fields, "dimension", 0),
+            Speed = NumField(fields, "speed", 1),
+            Framerate = NumField(fields, "framerate", 0),
             SmartBitrate = Get<bool>(fields, "smartBitrate"),
         };
+    }
+
+    /// <summary>
+    /// 宽容读取数值字段：类型/格式不对时回退到 <paramref name="fallback"/> 并记录告警，
+    /// 而不是抛异常让整个预设不可用。
+    ///
+    /// 历史行为是 <c>Convert.ToDouble/ToInt64</c> 直接抛 FormatException，
+    /// 一个写错的字段（如 <c>dimension: "1920abc"</c>）就会导致该预设加载失败。
+    /// 现在改为「字段降级 + 告警」，与 loader「坏的跳过、好的保留」的既有语义一致。
+    /// </summary>
+    private static double NumField(Dictionary<string, object?> fields, string key, double fallback)
+    {
+        if (!fields.TryGetValue(key, out var raw) || raw is null) return fallback;
+        try
+        {
+            var d = Convert.ToDouble(raw, System.Globalization.CultureInfo.InvariantCulture);
+            if (double.IsNaN(d) || double.IsInfinity(d)) throw new FormatException($"非有限数值: {raw}");
+            return d;
+        }
+        catch (Exception ex)
+        {
+            loadWarnings.Add($"字段「{key}」取值 {raw} 无效，已回退为 {fallback}：{ex.Message}");
+            return fallback;
+        }
     }
 
     public static FFmpegPreset? GetPreset(string name)

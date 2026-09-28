@@ -29,6 +29,61 @@ public class PresetAndDetectTests
         Assert.Throws<ArgumentException>(() => Helper.ParseBitrate(input));
     }
 
+    /// <summary>
+    /// 回归 P1-2：字段类型错误不得让预设构造失败。
+    ///
+    /// 旧行为：FromFields 用 Convert.ToDouble/ToInt64，一个写错的 dimension
+    /// （如 "1920abc"）就会抛 FormatException；而 Init() 的循环内没有 try/catch，
+    /// 于是单个坏预设会让全部预设加载失败、界面预设下拉框变空。
+    /// 新行为：非法/超范围字段回退默认值并记录告警，其余字段照常生效。
+    ///
+    /// 这里直接针对 FromFields 断言（而不走 Init），避免与其它测试类
+    /// 对进程内全局预设状态的静态构造初始化产生竞态。
+    /// </summary>
+    [Fact]
+    public void FromFields_InvalidNumericFields_FallBackInsteadOfThrowing()
+    {
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["format"] = ".mp4",
+            ["type"] = "video",
+            ["dimension"] = "1920abc",       // 非法数字
+            ["videoQuality"] = "abc",        // 非法数字
+            ["framerate"] = 30L,             // 合法，应保留
+            ["videoCodecFamily"] = "h264",
+            ["audioCodec"] = "aac",
+        };
+
+        var preset = FFmpegPresets.FromFields("bad_one", fields);   // 不得抛异常
+
+        Assert.Equal(0, preset.Dimension);          // 非法 → 回退 0
+        Assert.Equal(0, preset.VideoQuality);       // 非法 → 回退 0
+        Assert.Equal(30, preset.Framerate);         // 合法字段不受影响
+        Assert.Equal(".mp4", preset.Format);
+    }
+
+    /// <summary>合法数值字段必须原样保留（确认宽容读取没有把正常值也改掉）。</summary>
+    [Fact]
+    public void FromFields_ValidNumericFields_ArePreserved()
+    {
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["format"] = ".mp4",
+            ["type"] = "video",
+            ["dimension"] = 1920L,
+            ["videoQuality"] = 23.0,
+            ["videoBitrate"] = "8M",
+            ["audioBitrate"] = "192k",
+        };
+
+        var preset = FFmpegPresets.FromFields("ok_one", fields);
+
+        Assert.Equal(1920, preset.Dimension);
+        Assert.Equal(23.0, preset.VideoQuality);
+        Assert.Equal(8_000_000, preset.VideoBitrate);
+        Assert.Equal(192_000, preset.AudioBitrate);
+    }
+
     [Fact]
     public void PresetLoader_ResolveExtendsAndOverride()
     {
@@ -223,5 +278,58 @@ public class PresetAndDetectTests
         Assert.Equal("amd", Gpu.NormalizeVendor("Advanced Micro Devices, Inc."));
         Assert.Equal("amd", Gpu.NormalizeVendor("ATI Radeon"));
         Assert.Equal("other", Gpu.NormalizeVendor("Microsoft Basic Display Adapter"));
+    }
+
+    /// <summary>
+    /// 回归 P1-1：WMI 上报的 AMD 显卡型号最常见形态是 "AMD Radeon RX 6800 XT"。
+    /// 它不含 "advanced micro devices"、不等于 "amd"、也没有独立 "ati" 词元，
+    /// 旧实现会误判为 other，导致 AMF 硬编与 swdec 链路整体丢失、静默退化为纯 CPU 软编。
+    /// </summary>
+    [Theory]
+    [InlineData("AMD Radeon RX 6800 XT")]
+    [InlineData("AMD Radeon(TM) Graphics")]
+    [InlineData("Radeon RX 580 Series")]
+    [InlineData("AMD")]
+    public void Gpu_NormalizeVendor_DetectsAmdWmiModels(string model)
+    {
+        Assert.Equal("amd", Gpu.NormalizeVendor(model));
+    }
+
+    /// <summary>AMD 识别不得误伤 Intel / NVIDIA（Intel 型号含 "ati" 子串）。</summary>
+    [Theory]
+    [InlineData("Intel(R) UHD Graphics 770", "intel")]
+    [InlineData("Intel(R) Arc(TM) A770 Graphics", "intel")]
+    [InlineData("NVIDIA GeForce RTX 4090", "nvidia")]
+    [InlineData("Microsoft Basic Display Adapter", "other")]
+    public void Gpu_NormalizeVendor_DoesNotMisclassifyOthers(string model, string expected)
+    {
+        Assert.Equal(expected, Gpu.NormalizeVendor(model));
+    }
+
+    /// <summary>
+    /// 回归 P2-7：ffmpeg -encoders 的表头说明行（" V..... = Video"）前 6 位同样形如标志位，
+    /// 旧正则会把 "=" 当成编码器名，污染集合并使 EncoderCount 偏大。
+    /// </summary>
+    [Fact]
+    public void HwDetect_ParseEncoders_ExcludesHeaderOnlyRows()
+    {
+        var stdout = string.Join("\n",
+            "Encoders:",
+            " V..... = Video",
+            " A..... = Audio",
+            " S..... = Subtitle",
+            " ------",
+            " V....D libx264              libx264 H.264 / AVC",
+            " V....D h264_nvenc           NVIDIA NVENC H.264 encoder",
+            " A....D aac                  AAC (Advanced Audio Coding)");
+
+        var set = HwDetect.ParseEncoders(stdout);
+
+        Assert.DoesNotContain("=", set);
+        Assert.DoesNotContain("Video", set);
+        Assert.Equal(3, set.Count);
+        Assert.Contains("libx264", set);
+        Assert.Contains("h264_nvenc", set);
+        Assert.Contains("aac", set);
     }
 }

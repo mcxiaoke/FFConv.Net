@@ -1024,6 +1024,12 @@ public class MainForm : Form
             presetCombo.SelectedIndexChanged += OnPresetComboChanged;
 
             AppendLog(SessionLogLevel.Info, $"已加载 {names.Count} 个预设（详细说明见「使用说明…」）。");
+            // 单个预设字段无效会被跳过而不是让整体加载失败；这类问题必须让用户看见，
+            // 否则"某个自定义预设消失"会完全无从排查。
+            foreach (var warning in FFmpegPresets.LoadWarnings)
+            {
+                AppendLog(SessionLogLevel.Warn, warning);
+            }
             if (presetCombo.SelectedItem is string defaultPreset)
             {
                 LogPresetDetail(defaultPreset);

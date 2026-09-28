@@ -115,8 +115,13 @@ public sealed class SessionLogWriter : IDisposable
             try
             {
                 Directory.CreateDirectory(outputDir);
-                // 同样加唯一后缀，避免同一秒内两次同步撞名
-                var name = $"ffconv-transcode-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..(24 + 6)] + ".log";
+                // 唯一后缀：时间戳 + guid 前 12 位，避免同一秒内两次同步撞名。
+                // 历史写法 `[..(24 + 6)]` 的截断长度算错——前缀 "ffconv-transcode-" 长 17、
+                // 时间戳长 15，合计 32 已超过 30，导致 guid 被整体截掉，且时间戳被截在中间，
+                // 同一秒内同步会因重名而互相覆盖。此处改为显式分段，保证时间戳完整且留有随机位。
+                var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                var rand = Guid.NewGuid().ToString("N")[..12];
+                var name = $"ffconv-transcode-{stamp}-{rand}.log";
                 var target = Path.Combine(outputDir, name);
                 File.WriteAllText(target, string.Join(Environment.NewLine, lines), Encoding.UTF8);
                 SyncedPath = target;

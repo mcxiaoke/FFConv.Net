@@ -349,17 +349,28 @@ public static partial class Gpu
 
     public static void ClearCache() => CachedGpus = null;
 
-    /// <summary>归一化 GPU vendor（"Intel Corporation" 含 "ati" 子串 → intel 判断必须在 amd 之前）。</summary>
+    /// <summary>
+    /// 归一化 GPU vendor。
+    ///
+    /// 顺序与词元匹配都很关键：
+    /// - "Intel Corporation" 含 "ati" 子串，因此 amd 判定必须在 intel 之后、且用词元匹配；
+    /// - WMI 上报的 AMD 显卡型号最常见形态是 "AMD Radeon RX 6800 XT"，既不含
+    ///   "advanced micro devices"、也不等于 "amd"、更没有独立 "ati" 词元，
+    ///   因此必须额外识别 "radeon" 与独立的 "amd" 词元，否则会被误判为 other，
+    ///   导致 AMF 硬编与 swdec 链路整体丢失（静默退化为纯 CPU 软编）。
+    /// </summary>
     public static string NormalizeVendor(string? raw)
     {
         var v = (raw ?? "").ToLowerInvariant();
         if (v.Contains("nvidia")) return "nvidia";
         if (v.Contains("intel")) return "intel";
-        if (v.Contains("advanced micro devices") || v == "amd" || RxAtiWord().IsMatch(v) || v.StartsWith("ati"))
+        if (v.Contains("advanced micro devices") || v.Contains("radeon")
+            || RxAmdWord().IsMatch(v) || RxAtiWord().IsMatch(v) || v.StartsWith("ati"))
             return "amd";
         return "other";
     }
 
+    [GeneratedRegex(@"\bamd\b")] private static partial Regex RxAmdWord();
     [GeneratedRegex(@"\bati\b")] private static partial Regex RxAtiWord();
 
     /// <summary>生成硬件预探测列表（主 NVIDIA GPU 代次 → 全部解码/编码组合支持状态）。</summary>

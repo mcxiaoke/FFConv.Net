@@ -296,9 +296,13 @@ public static partial class HwAccel
         if (dimension <= 0)
             throw new ArgumentException($"calcLongEdge: invalid dimension {dimension}");
         var target = (int)Math.Min(dimension, (long)Math.Max(srcW, srcH));
-        return srcW >= srcH
+        var size = srcW >= srcH
             ? new Size(ToEven(target), ToEven(srcH * (double)target / srcW))
             : new Size(ToEven(srcW * (double)target / srcH), ToEven(target));
+        // 极端参数下（如 --dimension 2，或源尺寸极扁如 3840x6）短边会被取偶为 0，
+        // 生成 `scale=w=2:h=0` 这类非法滤镜并让 ffmpeg 报错。此处钳到最小可用边长 2，
+        // 与偶数对齐约束一致（0 不是合法的偶数边长）。
+        return new Size(Math.Max(2, size.W), Math.Max(2, size.H));
     }
 
     /// <summary>判断像素格式位深："8bit" | "10bit"（显式位深优先）。</summary>

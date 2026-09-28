@@ -148,6 +148,86 @@ public class PlanAndBuildTests
         Assert.Equal("copy", args[1][args[1].ToList().IndexOf("-c:v") + 1]);
     }
 
+    /// <summary>
+    /// 流复制必须整段跳过滤镜。回归 P0-2：ffmpeg 对「-c:v copy + -vf」会直接报
+    /// "Filtering and streamcopy cannot be used together" 并失败，
+    /// 因此 --video-copy 与缩放/变速/帧率/前后滤镜叠加时绝不能产出 -vf / -af。
+    /// 旧实现只清空了 preset.Filters，未清 Dimension/Speed/Framerate，
+    /// 于是这些组合会生成注定失败的 ffmpeg 命令（并伴随音画不同步）。
+    /// </summary>
+    [Theory]
+    [InlineData(1920L, 0.0, 0.0, null)]      // 4K 源 → 2K 缩放
+    [InlineData(1920L, 1.5, 0.0, null)]      // 变速
+    [InlineData(1920L, 0.0, 24.0, null)]     // 改帧率
+    [InlineData(1920L, 0.0, 0.0, "yadif")]   // 前置滤镜
+    public void CreateFFmpegArgs_VideoCopyNeverEmitsFilters(
+        long dimension, double speed, double framerate, string? preFilter)
+    {
+        var entry = MakeEntry(w: 3840, h: 2160);
+        entry.Preset.UserArgs.VideoCopy = true;
+        entry.Preset.UserArgs.VideoCodec = "copy";
+        entry.Preset.Filters = "";
+        if (dimension > 0) entry.Preset.UserArgs.Dimension = dimension;
+        if (speed > 0) entry.Preset.UserArgs.Speed = speed;
+        if (framerate > 0) entry.Preset.UserArgs.Framerate = framerate;
+        if (preFilter is not null) entry.Preset.PreFilters = preFilter;
+
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var middle = args[1].ToList();
+
+        Assert.DoesNotContain("-vf", middle);
+        Assert.DoesNotContain("-af", middle);   // 音频也不得变速，否则音画不同步
+        Assert.Contains("-c:v", middle);
+        Assert.Equal("copy", middle[middle.IndexOf("-c:v") + 1]);
+    }
+
+    /// <summary>非流复制场景仍应正常产出滤镜（确认上面的短路没有越界）。</summary>
+    [Fact]
+    public void CreateFFmpegArgs_NonCopyStillEmitsScaleFilter()
+    {
+        var entry = MakeEntry(w: 3840, h: 2160);
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var middle = args[1].ToList();
+        Assert.Contains("-vf", middle);
+        Assert.Contains(middle, a => a.Contains("scale=", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 回归 P1-3：BuildStreamArgs 依赖 RxWhitespace / RxMapMetadata 做清洗。
+    /// 这两处的 verbatim 正则曾被写成 <c>\\s</c>（匹配字面反斜杠），导致清洗静默失效。
+    /// </summary>
+    [Fact]
+    public void CreateFFmpegArgs_StreamArgsAreCleaned()
+    {
+        var entry = MakeEntry(w: 1920, h: 1080);
+        entry.Preset.StreamArgs = "-map_metadata:s:v BPS=   -map_metadata 0";
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var flat = string.Join(" ", args.SelectMany(a => a));
+
+        Assert.DoesNotContain("map_metadata:s:v", flat);      // 清洗生效
+        Assert.Contains("-map_metadata", flat);
+        Assert.DoesNotContain("   ", flat);                    // 空白压缩生效
+    }
+
+    /// <summary>
+    /// 回归 P1-3：带 -c:a 前缀的音频参数串在降级时不能丢掉 " -c:a" 前缀。
+    /// 旧正则失效时 "-c:a libopus" 会被当成整串去查编码器表，最终退化成裸 "aac"。
+    /// </summary>
+    [Fact]
+    public void FallbackAudioEncoder_PreservesCodecFlagPrefix()
+    {
+        var encoders = new HashSet<string>(StringComparer.Ordinal) { "aac", "libopus" };
+        Assert.Equal("-c:a libopus", FfmpegBuild.FallbackAudioEncoder("-c:a libopus", encoders));
+        Assert.Equal("-c:a aac", FfmpegBuild.FallbackAudioEncoder("-c:a libfdk_aac", encoders));
+    }
+
+
     [Fact]
     public void CreateFFmpegArgs_CqModeWithMaxrate()
     {
