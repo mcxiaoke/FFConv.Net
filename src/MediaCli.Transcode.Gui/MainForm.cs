@@ -310,6 +310,8 @@ public class MainForm : Form
         btnAbout.SetBounds(610, 29, 112, 25);
         btnAbout.Click += OnShowAbout;
 
+        // 布局时机说明：AutoSize 标签要等字体（150% DPI 下被放大）确定后才能量出真实宽度，
+        // 因此这里先只给一个占位位置，真正的水平位置在 Shown 里的 AlignParamLabels() 统一对齐。
         var lblArgs = new Label { Name = "lblArgs", Text = "自定义参数", AutoSize = true, Location = new Point(14, 70) };
         cliArgsBox.SetBounds(80, 66, 762, 23);
         cliArgsBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -347,8 +349,61 @@ public class MainForm : Form
         ]);
         Controls.Add(box);
 
+        // 标签列不能靠手写像素常量：标签是 AutoSize 的，其宽度随字体与 DPI 变化，
+        // 而字体要到窗体句柄创建后才按缩放比放大。历史上这里写死 62/304/502/80 四个
+        // 96-DPI 常量，150% 下「自定义参数」实际宽 100px > 预留 66px，直接压到右侧输入框
+        // （实测净间距 -1px，即重叠）。这里改为运行时按真实渲染宽度对齐。
+        Shown += (_, _) => AlignParamLabels(lblPreset, presetCombo, lblHw, hwaccelCombo,
+            lblDec, decodeCombo, lblArgs, cliArgsBox, btnParams, argsStatus);
+
         RefreshArgsStatus();
     }
+
+    /// <summary>
+    /// 按标签的<b>真实渲染宽度</b>对齐「参数」区各行的输入控件，保证标签与控件之间始终留有间距。
+    ///
+    /// 为什么必须运行时做：这些标签是 <c>AutoSize = true</c>，宽度由字体决定；
+    /// 而字体在 150% DPI 下会被放大 1.5 倍。若把控件位置写成 96 DPI 的像素常量，
+    /// 高 DPI 下标签就会吃掉全部预留间距、叠到控件上（实测「自定义参数」重叠 1px）。
+    ///
+    /// 间距固定为 <see cref="LabelGap"/>（按 DPI 缩放，最小 10px），
+    /// 因此无论标签多长、DPI 多少，都不会再出现重叠。
+    /// </summary>
+    private void AlignParamLabels(
+        Label lblPreset, ComboBox presetCombo,
+        Label lblHw, ComboBox hwaccelCombo,
+        Label lblDec, ComboBox decodeCombo,
+        Label lblArgs, TextBox cliArgsBox,
+        Button btnParams, Label argsStatus)
+    {
+        // 第一行：三个下拉框宽度保持设计值（按 DPI 换算），只按真实标签宽度重新定位，
+        // 使其依次紧跟各自标签；最后一列之后是「使用说明」按钮。
+        void PlaceFixed(Label label, Control control, int designWidth)
+        {
+            control.Left = label.Right + LabelGap;
+            control.Width = ScalePx(designWidth);
+        }
+
+        PlaceFixed(lblPreset, presetCombo, 168);
+        lblHw.Left = presetCombo.Right + ScalePx(14);
+        PlaceFixed(lblHw, hwaccelCombo, 118);
+        lblDec.Left = hwaccelCombo.Right + ScalePx(14);
+        PlaceFixed(lblDec, decodeCombo, 96);
+
+        // 第二行：自定义参数回显框占满「标签之后 → 高级参数按钮之前」的整段。
+        var argsLeft = lblArgs.Right + LabelGap;
+        cliArgsBox.Left = argsLeft;
+        cliArgsBox.Width = Math.Max(ScalePx(60), btnParams.Left - LabelGap - argsLeft);
+
+        // 状态行与回显框左对齐，形成同一列视觉基线。
+        argsStatus.Left = argsLeft;
+    }
+
+    /// <summary>标签与其右侧控件之间的最小间距（按 DPI 缩放，下限 10px）。</summary>
+    private int LabelGap => Math.Max(10, ScalePx(8));
+
+    /// <summary>把 96 DPI 设计值换算到当前 DPI。</summary>
+    private int ScalePx(int value) => (int)Math.Round(value * DeviceDpi / 96.0);
 
     /// <summary>参数框下方的一行状态：让「填了什么、有没有问题」不必点开面板就知道。</summary>
     private void RefreshArgsStatus()

@@ -178,6 +178,12 @@ public class MainFormLayoutTests
         {
             using var form = new TestableMainForm();
             form.CreateControl();
+            // 必须 Show()：标签是 AutoSize 的，其宽度由字体决定，而字体要到窗体句柄
+            // 创建后才按 DPI 缩放比放大（本机实测 150%）。只调 CreateControl() 的话
+            // 标签仍是 96 DPI 宽度，高 DPI 下的真实重叠（如「自定义参数」压到回显框上）
+            // 就被测不出来——这正是本用例历史上漏掉该缺陷的原因。
+            form.Show();
+            Ui.Pump(200);
             var offenders = new List<string>();
 
             // 所有容器 = 窗体自身 + 任意带子控件的控件
@@ -207,6 +213,91 @@ public class MainFormLayoutTests
 
             Assert.True(offenders.Count == 0,
                 "同级控件重叠:" + Environment.NewLine + string.Join(Environment.NewLine, offenders.Distinct()));
+        });
+    }
+
+    /// <summary>
+    /// AutoSize 标签与其右侧控件之间必须留有可见间距。
+    ///
+    /// 回归：标签位置曾用 96 DPI 的像素常量硬编码（如「自定义参数」预留 66px），
+    /// 而 150% DPI 下该标签实际宽 100px，标签右边缘越过控件左边缘 1px，
+    /// 表现为"文字紧贴/压住输入框边框"。间距判据比"是否重叠"更早暴露这类问题。
+    /// </summary>
+    [Fact]
+    public void AutoSizeLabels_KeepGapFromAdjacentControls()
+    {
+        Ui.RunInSta(() =>
+        {
+            using var form = new TestableMainForm();
+            form.Show();
+            Ui.Pump(200);
+
+            var offenders = new List<string>();
+            foreach (var lbl in Ui.Walk(form).Select(p => p.Child).OfType<Label>()
+                         .Where(l => l.AutoSize && l.Text.Length > 0))
+            {
+                var parent = lbl.Parent;
+                if (parent is null) continue;
+                var midY = lbl.Top + lbl.Height / 2;
+
+                foreach (Control sib in parent.Controls)
+                {
+                    if (ReferenceEquals(sib, lbl) || sib is Label) continue;
+                    var sibMidY = sib.Top + sib.Height / 2;
+                    // 仅比较同一水平带上的兄弟控件
+                    if (Math.Abs(sibMidY - midY) > Math.Max(lbl.Height, sib.Height) / 2) continue;
+                    if (sib.Left < lbl.Left) continue;
+
+                    var gap = sib.Left - lbl.Right;
+                    if (gap < 8)
+                    {
+                        offenders.Add(
+                            $"[{parent.Name}] 标签\"{lbl.Text}\"右边缘={lbl.Right} → {sib.Name}左边缘={sib.Left}，间距={gap}px");
+                    }
+                }
+            }
+
+            Assert.True(offenders.Count == 0,
+                "标签与相邻控件间距过窄（高 DPI 下会贴住/重叠）:" + Environment.NewLine +
+                string.Join(Environment.NewLine, offenders.Distinct()));
+        });
+    }
+
+    /// <summary>
+    /// 参数区第一行的三个下拉框与「使用说明」按钮必须依次排列、互不重叠。
+    ///
+    /// 回归：按标签真实宽度重新定位后，若宽度仍用"延伸到右侧按钮"的公式，
+    /// 三个下拉框会被拉宽并挤到窗口之外（实测 decodeCombo.Right=1672 越出客户区）。
+    /// </summary>
+    [Fact]
+    public void ParamRow_ControlsStayOrderedAndInsideClientArea()
+    {
+        Ui.RunInSta(() =>
+        {
+            using var form = new TestableMainForm();
+            form.Show();
+            Ui.Pump(200);
+
+            var preset = Ui.Require<ComboBox>(form, "presetCombo");
+            var hw = Ui.Require<ComboBox>(form, "hwaccelCombo");
+            var dec = Ui.Require<ComboBox>(form, "decodeCombo");
+            var about = Ui.Require<Button>(form, "btnAbout");
+            var args = Ui.Require<TextBox>(form, "cliArgsBox");
+            var paramsBtn = Ui.Require<Button>(form, "btnParams");
+
+            Assert.True(preset.Right <= hw.Left, "presetCombo 与 hwaccelCombo 重叠");
+            Assert.True(hw.Right <= dec.Left, "hwaccelCombo 与 decodeCombo 重叠");
+            Assert.True(dec.Right <= about.Left, "decodeCombo 与「使用说明」重叠");
+            Assert.True(args.Right <= paramsBtn.Left, "自定义参数框与「高级参数」重叠");
+
+            // 全部控件必须落在参数 GroupBox 的客户区内
+            var group = preset.Parent!;
+            foreach (var c in new Control[] { preset, hw, dec, about, args, paramsBtn })
+            {
+                Assert.True(c.Right <= group.ClientSize.Width,
+                    $"{c.Name}.Right={c.Right} 越出容器宽度 {group.ClientSize.Width}");
+                Assert.True(c.Left >= 0, $"{c.Name}.Left={c.Left} 为负");
+            }
         });
     }
 
