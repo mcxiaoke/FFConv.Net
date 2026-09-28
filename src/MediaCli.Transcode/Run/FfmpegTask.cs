@@ -30,6 +30,39 @@ public static class FfmpegTask
     public static void SetCachedCaps(HardwareCaps caps) => CachedCaps = caps;
     internal static HardwareCaps? GetCachedCaps() => CachedCaps;
 
+    /// <summary>
+    /// 把「目标已存在」细化为「被本批次早前文件占用」。
+    ///
+    /// 两种原因对用户意味着完全不同的动作，必须分开：
+    /// - <c>destination_exists</c>：输出目录里本来就有的旧文件 → 清理旧文件或勾选「覆盖已有」；
+    /// - <c>destination_conflict_in_batch</c>：本批自己刚产出的文件占住了同名目标
+    ///   → 改命名模板（如 <c>--suffix "_{preset}{srcExt}"</c>）。
+    ///
+    /// 放在 core 供 GUI 与 CLI 共用：两边的编排模型不同（GUI 逐个 prepare+执行，
+    /// CLI 先全部 prepare 再逐个执行），但判定语义必须一致，否则同一目录在两个入口
+    /// 会得到不同的跳过原因。
+    /// </summary>
+    /// <param name="entry">刚完成 prepare 或执行的文件条目。</param>
+    /// <param name="batchOutputs">本批次已承诺的输出路径 → 产出它的源文件（大小写不敏感）。</param>
+    public static void RefineDestinationConflict(
+        TranscodeEntry entry, IReadOnlyDictionary<string, string> batchOutputs)
+    {
+        // 运行时跳过（FfmpegRun 检测到目标已存在）只置 DstExists，不写 SkipReason；
+        // 先归一为 destination_exists 再判定，否则这里会直接 return、原因永远为空。
+        if (entry.SkipReason is null && entry.DstExists)
+        {
+            entry.SkipReason = SkipReason.DestinationExists;
+        }
+        if (entry.SkipReason != SkipReason.DestinationExists) return;
+        if (entry.DstExistsPath is not { Length: > 0 } conflictPath) return;
+        if (!batchOutputs.TryGetValue(conflictPath, out var earlierSource)) return;
+        // 同一文件被重复扫描到时不该把自己报成冲突方
+        if (string.Equals(earlierSource, entry.Path, StringComparison.OrdinalIgnoreCase)) return;
+
+        entry.SkipReason = SkipReason.DestinationConflictInBatch;
+        entry.ConflictedWithSource = earlierSource;
+    }
+
     public static TranscodeEntry BuildCliTask(TranscodeEntry entry, TaskDeps deps)
     {
         Func<string, TranscodeEntry> skipped = reason =>
@@ -129,6 +162,14 @@ public static class FfmpegTask
             var fileDstTemp = Path.Combine(fileDstDir, $"{fileDstBase}{tempSuffix}{dstExt}");
             var fileDstSameDir = Path.Combine(srcDir, fileDstName);
 
+            // 目标路径必须在"存在性判定"之前落到 entry 上：
+            // 否则跳过路径只有源路径可报，日志就成了「源文件 + destination_exists」，
+            // 用户无法知道到底是哪个目标挡住了自己。
+            entry.FileDstDir = fileDstDir;
+            entry.FileDstBase = fileDstBase;
+            entry.FileDst = fileDst;
+            entry.FileDstTemp = fileDstTemp;
+
             if (File.Exists(fileDst))
             {
                 if (!argv.Override)
@@ -145,6 +186,8 @@ public static class FfmpegTask
                 if (!argv.Override)
                 {
                     entry.DstExists = true;
+                    entry.DstExistsPath = fileDstSameDir;   // 原实现漏设，日志因此拿不到目标路径
+                    entry.DstExistsSize = new FileInfo(fileDstSameDir).Length;
                     return skipped(SkipReason.DestinationExists);
                 }
             }
@@ -187,10 +230,7 @@ public static class FfmpegTask
                 if (File.Exists(sub2)) subtitles.Add(sub2);
             }
 
-            entry.FileDstDir = fileDstDir;
-            entry.FileDstBase = fileDstBase;
-            entry.FileDst = fileDst;
-            entry.FileDstTemp = fileDstTemp;
+            // entry.FileDst* 已在存在性判定之前赋值（跳过路径也要能报告目标路径），此处不再重复。
             entry.Subtitles = subtitles;
             entry.SelectedSubtitle = chooseSubtitle(subtitles);
             return entry;

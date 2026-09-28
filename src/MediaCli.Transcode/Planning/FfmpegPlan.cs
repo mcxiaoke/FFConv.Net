@@ -231,6 +231,16 @@ public static partial class FfmpegPlan
         {
             foreach (var kv in entry.DstArgs.ToTemplateDict()) replaceArgs[kv.Key] = kv.Value;
         }
+        // 源文件派生的命名变量。
+        //
+        // 存在理由：同一基名、不同容器的文件（如 Big_Buck_Bunny.mkv/.mp4/.webm）在
+        // 默认后缀 `_{preset}` 下会映射到同一个目标名，先跑成功、其余被判 destination_exists。
+        // {srcVideoCodec} / {srcFormat} 都不可靠——同内容的 .mkv 与 .mp4 可能同为
+        // "mov,mp4,..." 容器、也可能装同一 codec，只有「源扩展名」能稳定区分。
+        replaceArgs["srcExt"] = Path.GetExtension(entry.Name);                                  // ".mkv"
+        replaceArgs["srcExtBare"] = Path.GetExtension(entry.Name).TrimStart('.');                // "mkv"
+        replaceArgs["srcStem"] = Path.GetFileNameWithoutExtension(entry.Name);                   // "Big_Buck_Bunny"
+        replaceArgs["srcName"] = entry.Name;                                                     // "Big_Buck_Bunny.mkv"
         var prefix = FilenameSafe(Core.FormatArgs(entry.Preset.Prefix ?? "", replaceArgs));
         var suffix = FilenameSafe(Core.FormatArgs(entry.Preset.Suffix ?? "", replaceArgs));
         return ($"{prefix}{srcBase}{suffix}", prefix, suffix);

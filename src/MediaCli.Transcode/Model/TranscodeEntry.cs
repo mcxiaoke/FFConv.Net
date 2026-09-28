@@ -26,6 +26,12 @@ public static class SkipReason
     public const string MissingAudio = "missing_audio";
     public const string MissingVideo = "missing_video";
     public const string DestinationExists = "destination_exists";
+    /// <summary>
+    /// 目标路径已被<b>本批次早前的文件</b>占用（不是磁盘上本来就有的旧文件）。
+    /// 典型成因：同一基名、不同容器的文件在默认后缀 `_{preset}` 下映射到同一个目标名。
+    /// 与 destination_exists 分开报告，用户才知道该改命名模板而不是去清理旧文件。
+    /// </summary>
+    public const string DestinationConflictInBatch = "destination_conflict_in_batch";
     public const string ShortDuration = "short_duration";
     public const string StrictCodec = "strict_codec";
     public const string StrictMode = "strict_mode";
@@ -84,6 +90,8 @@ public sealed class TranscodeEntry
     public bool DstExists { get; set; }
     public string? DstExistsPath { get; set; }
     public long DstExistsSize { get; set; }
+    /// <summary>占用该目标路径的源文件（仅当冲突来自本批次早前文件时设置）。</summary>
+    public string? ConflictedWithSource { get; set; }
     public HwPlan? HwPlan { get; set; }
     public bool UseCUDA { get; set; }
     /// <summary>[inputArgs, middleArgs, outputArgs] produced by createFFmpegArgs.</summary>

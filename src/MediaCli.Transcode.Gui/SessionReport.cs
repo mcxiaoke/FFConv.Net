@@ -1,4 +1,5 @@
 using System.Text;
+using MediaCli.Transcode.Model;
 using MediaCli.Transcode.Support;
 
 namespace MediaCli.Transcode.Gui;
@@ -88,6 +89,26 @@ public static class SessionReport
             {
                 var stage = string.IsNullOrEmpty(f.Stage) ? "" : $"[{f.Stage}] ";
                 sb.AppendLine($"  · {f.Name}  {stage}{f.Detail}");
+            }
+        }
+
+        // 跳过清单：跳过的文件不在产物里，若不在此列出，用户只能逐行翻日志才能知道
+        // "哪些没产出、为什么"。批内冲突额外标出占用者，直接指向解决办法。
+        var skips = summary.Results.Where(r => r.Outcome == SessionFileOutcome.Skipped).ToList();
+        if (skips.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"跳过文件（{skips.Count}）：");
+            foreach (var s in skips)
+            {
+                var reason = string.IsNullOrEmpty(s.Detail) ? "未知" : s.Detail;
+                var line = $"  · {s.Name}  [{reason}]";
+                if (!string.IsNullOrEmpty(s.OutputPath)) line += $"  目标：{s.OutputPath}";
+                if (reason == SkipReason.DestinationConflictInBatch && !string.IsNullOrEmpty(s.ConflictWith))
+                {
+                    line += $"  已由：{s.ConflictWith}";
+                }
+                sb.AppendLine(line);
             }
         }
 

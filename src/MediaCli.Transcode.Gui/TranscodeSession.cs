@@ -38,6 +38,10 @@ public sealed class SessionFileResult
     public required SessionFileOutcome Outcome { get; init; }
     public string? OutputPath { get; init; }
     public string? Detail { get; init; }
+    /// <summary>
+    /// 当跳过原因是「目标已被本批次早前文件占用」时，记录占用该目标的源文件路径。
+    /// </summary>
+    public string? ConflictWith { get; init; }
     public string? Stage { get; init; }
     public string? Command { get; init; }
     public string? Tier { get; init; }
@@ -218,6 +222,16 @@ public sealed class TranscodeSession
         // CLI 参数覆盖界面控件的说明必须可见，否则用户会以为参数没生效
         foreach (var note in options.AllWarnings()) log(SessionLogLevel.Warn, note);
 
+        // 本批次已承诺的输出路径 → 产出它的源文件。
+        //
+        // 用途：同一基名、不同容器的文件在默认后缀 `_{preset}` 下会映射到同一个目标名，
+        // 先跑成功的会占用该路径，后来者只看到"目标已存在"，无法分辨这是
+        // 「本批自己刚产出的」还是「输出目录里本来就有的旧文件」。
+        // 两者对用户意味着完全不同的动作（改命名模板 vs 清理旧文件），必须分开报告。
+        //
+        // 键用 OrdinalIgnoreCase：Windows 路径不区分大小写，仅大小写不同的目标名同样会互相覆盖。
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         for (var i = 0; i < filtered.Count; i++)
         {
             if (token.IsCancellationRequested)
@@ -264,13 +278,25 @@ public sealed class TranscodeSession
             if (task.Skipped)
             {
                 summary.Skipped++;
-                log(SessionLogLevel.Warn, $"跳过[{task.SkipReason}] {task.Path}");
+                // 区分「本批自己刚产出的目标」与「输出目录里本来就有的旧文件」：
+                // 前者要改命名模板，后者要清理旧文件或勾选覆盖。
+                FfmpegTask.RefineDestinationConflict(task, batchOutputs);
+                log(SessionLogLevel.Warn, DescribeSkip(task, src));
                 summary.Results.Add(new SessionFileResult
                 {
                     Name = src.Name, Path = src.Path, Outcome = SessionFileOutcome.Skipped,
-                    Detail = task.SkipReason, InputBytes = src.Size,
+                    Detail = task.SkipReason,
+                    OutputPath = task.DstExistsPath ?? task.FileDst,
+                    ConflictWith = task.ConflictedWithSource,
+                    InputBytes = src.Size,
                 });
                 continue;
+            }
+
+            // 登记本文件即将占用的输出路径；后到的同目标文件即可被识别为批内冲突。
+            if (task.FileDst is { Length: > 0 } plannedOutput)
+            {
+                batchOutputs.TryAdd(plannedOutput, src.Path);
             }
 
             var runOptions = new RunOptions
@@ -304,7 +330,12 @@ public sealed class TranscodeSession
                 continue;
             }
 
-            Classify(done, src, summary);
+            // 成功产出即登记该输出路径，供后到的同目标文件识别为「批内冲突」。
+            if (done.Ok && done.FileDst is { Length: > 0 } produced)
+            {
+                batchOutputs.TryAdd(produced, src.Path);
+            }
+            Classify(done, src, summary, batchOutputs);
             var completedCount = i + 1;
             var fileOverall = (double)completedCount / filtered.Count * 100.0;
             progress?.Invoke(new SessionProgress(
@@ -361,7 +392,8 @@ public sealed class TranscodeSession
     /// 判定顺序刻意如此：<b>先</b>认 TestMode 哨兵，<b>再</b>看真实失败 ——
     /// 因为预览成功时 core 也会把 <c>FFmpegFailed</c> 置为 true。
     /// </summary>
-    private void Classify(TranscodeEntry done, ScanEntry src, SessionSummary summary)
+    private void Classify(TranscodeEntry done, ScanEntry src, SessionSummary summary,
+        Dictionary<string, string> batchOutputs)
     {
         var tier = done.HwPlan?.Tier.Name;
         var elapsed = Environment.TickCount64 - done.StartMs;
@@ -418,13 +450,17 @@ public sealed class TranscodeSession
         if (done.Skipped || done.DstExists)
         {
             summary.Skipped++;
-            log(SessionLogLevel.Warn,
-                $"跳过[{done.SkipReason ?? "destination_exists"}] {done.DstExistsPath ?? done.FileDst}");
+            // 与 prepare 阶段同一套判定：目标被本批早前文件占用时改用
+            // destination_conflict_in_batch，并记下占用者，便于日志给出可执行结论。
+            FfmpegTask.RefineDestinationConflict(done, batchOutputs);
+            var reason = done.SkipReason ?? SkipReason.DestinationExists;
+            log(SessionLogLevel.Warn, DescribeSkip(done, src));
             summary.Results.Add(new SessionFileResult
             {
                 Name = src.Name, Path = src.Path, Outcome = SessionFileOutcome.Skipped,
                 OutputPath = done.DstExistsPath ?? done.FileDst,
-                Detail = done.SkipReason ?? "destination_exists",
+                Detail = reason,
+                ConflictWith = done.ConflictedWithSource,
                 InputBytes = src.Size, ElapsedMs = elapsed,
             });
             return;
@@ -443,8 +479,37 @@ public sealed class TranscodeSession
         });
     }
 
-    private static long FileSizeOf(string? path)
+    /// <summary>
+    /// 生成跳过原因的可读描述。
+    ///
+    /// 关键点：始终给出「源 → 目标」两个路径。旧日志只打源路径 + destination_exists，
+    /// 用户看到的是一条指向源文件的告警，却被告知"目标已存在"——无从判断是哪一个目标、
+    /// 更无从判断是本批自撞还是旧文件占位。
+    /// </summary>
+    private static string DescribeSkip(TranscodeEntry task, ScanEntry src)
     {
+        var target = task.DstExistsPath ?? task.FileDst;
+
+        if (task.SkipReason == SkipReason.DestinationConflictInBatch)
+        {
+            var blocker = string.IsNullOrEmpty(task.ConflictedWithSource)
+                ? "本批次早前的文件"
+                : $"本批次的 {task.ConflictedWithSource}";
+            return $"跳过[{task.SkipReason}] {src.Path} → 目标 {target} 已由{blocker}产出" +
+                   "（同基名多容器文件映射到同一输出名；可用 --suffix 加 {srcExt} 区分）";
+        }
+
+        if (task.SkipReason == SkipReason.DestinationExists)
+        {
+            return $"跳过[{task.SkipReason}] {src.Path} → 目标已存在：{target}";
+        }
+
+        return string.IsNullOrEmpty(target)
+            ? $"跳过[{task.SkipReason}] {src.Path}"
+            : $"跳过[{task.SkipReason}] {src.Path} → {target}";
+    }
+
+    private static long FileSizeOf(string? path)    {
         try
         {
             return !string.IsNullOrEmpty(path) && File.Exists(path) ? new FileInfo(path).Length : 0;

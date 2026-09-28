@@ -94,7 +94,7 @@ public static class CliOptions
         // ---- 命名与画面 ----
         new("prefix", CliValueKind.Text, "输出文件名前缀（支持模板变量，如 {preset}）",
             Aliases: ["px", "pf", "P"]),
-        new("suffix", CliValueKind.Text, "输出文件名后缀（支持模板变量）",
+        new("suffix", CliValueKind.Text, "输出文件名后缀（支持模板变量，如 _{preset}{srcExt} 可区分同基名多容器文件）",
             Aliases: ["sx", "sf", "S"]),
         new("dimension", CliValueKind.Number, "目标长边像素（禁止放大）",
             Aliases: ["dm"]),

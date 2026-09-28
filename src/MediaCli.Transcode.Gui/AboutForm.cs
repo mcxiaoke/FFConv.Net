@@ -138,6 +138,18 @@ public static class AboutContent
         sb.AppendLine("    预设 = 一组预定义参数，选定后再用上面的参数做覆盖。");
         sb.AppendLine("    以 _ 开头的是继承基类，不会出现在下拉框中。");
         sb.AppendLine("    自定义预设可写入 ~/.mediac/presets.yaml。");
+        sb.AppendLine();
+        sb.AppendLine("六、同基名的多容器文件");
+        sb.AppendLine("    同一目录下若存在 Movie.mkv / Movie.mp4 / Movie.webm，");
+        sb.AppendLine("    默认后缀只保留基名，三者会映射到同一个输出名：");
+        sb.AppendLine("    只有第一个能产出，其余会被跳过并记为");
+        sb.AppendLine("    destination_conflict_in_batch（日志会指出被谁占用）。");
+        sb.AppendLine("    需要全部保留时用源扩展名区分：");
+        sb.AppendLine("        自定义参数填 --suffix \"_{preset}{srcExt}\"");
+        sb.AppendLine("    可用模板变量：{srcExt} .mkv | {srcExtBare} mkv |");
+        sb.AppendLine("    {srcStem} 源文件名 | {srcName} 源文件名含扩展名。");
+        sb.AppendLine("    注意 {srcVideoCodec} / {srcFormat} 不可靠——");
+        sb.AppendLine("    同内容的 .mkv 与 .mp4 可能是相同容器或同一 codec。");
         return sb.ToString();
     }
 }

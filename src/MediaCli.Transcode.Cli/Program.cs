@@ -247,6 +247,9 @@ public static class Program
         var ok = 0;
         var skipped = 0;
         var tasks = new List<TranscodeEntry>();
+        // 与 GUI 编排同一套批内冲突判定：同基名多容器文件会映射到同一输出名，
+        // 先到者占用该路径，后来者必须能分辨「本批自撞」还是「旧文件占位」。
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < filtered.Count; i++)
         {
             var e = filtered[i];
@@ -268,10 +271,21 @@ public static class Program
             if (task.Skipped)
             {
                 skipped++;
-                Console.WriteLine($"skip[{task.SkipReason}] {task.Path}");
+                if (task.SkipReason == SkipReason.DestinationExists
+                    && task.DstExistsPath is { Length: > 0 } conflictPath
+                    && batchOutputs.TryGetValue(conflictPath, out var earlierSource))
+                {
+                    task.SkipReason = SkipReason.DestinationConflictInBatch;
+                    task.ConflictedWithSource = earlierSource;
+                }
+                var target = task.DstExistsPath ?? task.FileDst;
+                Console.WriteLine(
+                    $"skip[{task.SkipReason}] {task.Path} -> {target}" +
+                    (task.ConflictedWithSource is null ? "" : $" (already produced by {task.ConflictedWithSource})"));
                 continue;
             }
             ok++;
+            if (task.FileDst is { Length: > 0 } plannedOutput) batchOutputs.TryAdd(plannedOutput, e.Path);
             var dst = task.DstArgs!;
             Console.WriteLine(
                 $"#{i + 1}/{filtered.Count} {Helper.PathShort(task.Path, 64)}\n" +
@@ -301,6 +315,9 @@ public static class Program
         // 真实执行
         var success = 0;
         var failed = 0;
+        // 执行阶段同样要维护批内占用表：目标已存在的判定发生在 RunFFmpeg 内部，
+        // 只有成功产出的文件才真正"占住"了该路径。
+        var executedOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < tasks.Count; i++)
         {
             var task = tasks[i];
@@ -313,10 +330,17 @@ public static class Program
                 case RunStatus.Success:
                     success++;
                     Console.WriteLine($"  done: {result.OutputPath}");
+                    if (task.FileDst is { Length: > 0 } produced) executedOutputs.TryAdd(produced, task.Path);
                     break;
                 case RunStatus.Skipped:
                     skipped++;
-                    Console.WriteLine($"  skipped: {result.Reason}");
+                    // 运行时跳过的 carrier 是 DstExists 而非 SkipReason，先回填再细化原因。
+                    task.SkipReason ??= result.Reason ?? SkipReason.DestinationExists;
+                    FfmpegTask.RefineDestinationConflict(task, executedOutputs);
+                    var skipTarget = task.DstExistsPath ?? task.FileDst;
+                    Console.WriteLine(
+                        $"  skipped: {task.SkipReason} -> {skipTarget}" +
+                        (task.ConflictedWithSource is null ? "" : $" (already produced by {task.ConflictedWithSource})"));
                     break;
                 case RunStatus.Cancelled:
                     Console.WriteLine("  cancelled");

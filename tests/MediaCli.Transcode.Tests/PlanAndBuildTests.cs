@@ -196,6 +196,164 @@ public class PlanAndBuildTests
         Assert.Contains(middle, a => a.Contains("scale=", StringComparison.Ordinal));
     }
 
+    // ------------------------------------------------------------------
+    // 同基名多容器文件的命名区分（{srcExt} 系列变量）
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 回归：同一基名、不同容器的文件在默认后缀 `_{preset}` 下会映射到同一个目标名，
+    /// 只有第一个能产出。{srcExt} 系列变量让用户可以稳定区分它们。
+    ///
+    /// 关键约束：{srcExt} 必须含点（可直接拼进文件名），{srcExtBare} 不含点。
+    /// </summary>
+    [Theory]
+    [InlineData("Movie.mkv", "_av1{srcExt}", "Movie_av1.mkv")]
+    [InlineData("Movie.mp4", "_av1{srcExt}", "Movie_av1.mp4")]
+    [InlineData("Movie.webm", "_av1{srcExt}", "Movie_av1.webm")]
+    [InlineData("Movie.mkv", "_{preset}_{srcExtBare}", "Movie_hevc_2k_mkv")]
+    // 注意：基名（srcBase）始终居中拼接，{srcStem} 只是"可再引用一次源文件名"，
+    // 不会替代它，因此结果为 Movie + Movie-out。
+    [InlineData("Movie.mkv", "-{srcStem}-out", "Movie-Movie-out")]
+    [InlineData("Movie.mkv", "-{srcName}", "Movie-Movie.mkv")]
+    public void CreateDstBaseName_SourceDerivedVariables(string fileName, string suffixTemplate, string expectedBase)
+    {
+        var entry = MakeEntry(path: fileName);
+        entry.Name = fileName;
+        entry.Preset.Suffix = suffixTemplate;
+        entry.Preset.Prefix = "";
+
+        var (baseName, _, _) = FfmpegPlan.CreateDstBaseName(entry);
+
+        Assert.Equal(expectedBase, baseName);
+    }
+
+    /// <summary>
+    /// 用 {srcExt} 区分后，同基名多容器文件必须得到互不相同的目标名
+    /// （这正是修复前会互相撞名、被判 destination_exists 的场景）。
+    /// </summary>
+    [Fact]
+    public void CreateDstBaseName_SameStemDifferentContainers_ProduceDistinctNames()
+    {
+        var names = new List<string>();
+        foreach (var ext in new[] { ".mkv", ".mp4", ".webm" })
+        {
+            var fileName = "Movie" + ext;
+            var entry = MakeEntry(path: fileName);
+            entry.Name = fileName;
+            entry.Preset.Suffix = "_{preset}{srcExt}";
+            entry.Preset.Prefix = "";
+            var (baseName, _, _) = FfmpegPlan.CreateDstBaseName(entry);
+            names.Add(baseName);
+        }
+
+        Assert.Equal(3, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(["Movie_hevc_2k.mkv", "Movie_hevc_2k.mp4", "Movie_hevc_2k.webm"], names);
+    }
+
+    /// <summary>未使用新变量时保持原行为（默认后缀输出名不变，向后兼容）。</summary>
+    [Fact]
+    public void CreateDstBaseName_DefaultSuffixUnchanged()
+    {
+        var entry = MakeEntry(path: "Movie.mkv");
+        entry.Name = "Movie.mkv";
+        entry.Preset.Suffix = "_{preset}";
+        entry.Preset.Prefix = "";
+        var (baseName, _, _) = FfmpegPlan.CreateDstBaseName(entry);
+        Assert.Equal("Movie_hevc_2k", baseName);
+    }
+
+    // ------------------------------------------------------------------
+    // 批内目标冲突的识别
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 回归：跳过原因必须区分「输出目录里的旧文件」与「本批次自己刚产出的文件」。
+    /// 前者要清旧文件/勾选覆盖，后者要改命名模板——两者动作完全不同。
+    /// </summary>
+    [Fact]
+    public void RefineDestinationConflict_MarksBatchConflictAndRecordsBlocker()
+    {
+        var entry = new TranscodeEntry { Path = @"C:\in\Movie.mp4", Name = "Movie.mp4" };
+        entry.DstExists = true;
+        entry.DstExistsPath = @"C:\out\Movie_av1_2k.mp4";
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\out\Movie_av1_2k.mp4"] = @"C:\in\Movie.mkv",
+        };
+
+        FfmpegTask.RefineDestinationConflict(entry, batchOutputs);
+
+        Assert.Equal(SkipReason.DestinationConflictInBatch, entry.SkipReason);
+        Assert.Equal(@"C:\in\Movie.mkv", entry.ConflictedWithSource);
+    }
+
+    /// <summary>磁盘上的旧文件（不在本批产出表里）必须保持 destination_exists。</summary>
+    [Fact]
+    public void RefineDestinationConflict_OldFileOnDisk_StaysDestinationExists()
+    {
+        var entry = new TranscodeEntry { Path = @"C:\in\Movie.mp4", Name = "Movie.mp4" };
+        entry.DstExists = true;
+        entry.DstExistsPath = @"C:\out\Movie_av1_2k.mp4";
+
+        FfmpegTask.RefineDestinationConflict(entry, new Dictionary<string, string>());
+
+        Assert.Equal(SkipReason.DestinationExists, entry.SkipReason);
+        Assert.Null(entry.ConflictedWithSource);
+    }
+
+    /// <summary>路径大小写不同不应漏判（Windows 路径不区分大小写，会互相覆盖）。</summary>
+    [Fact]
+    public void RefineDestinationConflict_IsCaseInsensitive()
+    {
+        var entry = new TranscodeEntry { Path = @"C:\in\Movie.mp4", Name = "Movie.mp4" };
+        entry.DstExists = true;
+        entry.DstExistsPath = @"C:\OUT\Movie_AV1_2K.MP4";
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"c:\out\movie_av1_2k.mp4"] = @"C:\in\Movie.mkv",
+        };
+
+        FfmpegTask.RefineDestinationConflict(entry, batchOutputs);
+
+        Assert.Equal(SkipReason.DestinationConflictInBatch, entry.SkipReason);
+    }
+
+    /// <summary>同一文件被重复扫描到时，不该把自己报成冲突方。</summary>
+    [Fact]
+    public void RefineDestinationConflict_DoesNotSelfReport()
+    {
+        var entry = new TranscodeEntry { Path = @"C:\in\Movie.mp4", Name = "Movie.mp4" };
+        entry.DstExists = true;
+        entry.DstExistsPath = @"C:\out\Movie_av1_2k.mp4";
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\out\Movie_av1_2k.mp4"] = @"C:\in\Movie.mp4",
+        };
+
+        FfmpegTask.RefineDestinationConflict(entry, batchOutputs);
+
+        Assert.Equal(SkipReason.DestinationExists, entry.SkipReason);
+    }
+
+    /// <summary>非目标冲突类跳过原因不得被改写（只在 destination_exists 上细化）。</summary>
+    [Fact]
+    public void RefineDestinationConflict_LeavesOtherSkipReasonsAlone()
+    {
+        var entry = new TranscodeEntry { Path = @"C:\in\Movie.mp4", Name = "Movie.mp4" };
+        entry.Skipped = true;
+        entry.SkipReason = SkipReason.ShortDuration;
+        entry.DstExistsPath = @"C:\out\Movie_av1_2k.mp4";
+        var batchOutputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C:\out\Movie_av1_2k.mp4"] = @"C:\in\Movie.mkv",
+        };
+
+        FfmpegTask.RefineDestinationConflict(entry, batchOutputs);
+
+        Assert.Equal(SkipReason.ShortDuration, entry.SkipReason);
+    }
+
+
     /// <summary>
     /// 回归 P1-3：BuildStreamArgs 依赖 RxWhitespace / RxMapMetadata 做清洗。
     /// 这两处的 verbatim 正则曾被写成 <c>\\s</c>（匹配字面反斜杠），导致清洗静默失效。

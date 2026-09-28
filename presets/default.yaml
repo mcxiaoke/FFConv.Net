@@ -32,6 +32,18 @@
 #   {speed}          - 速度倍率
 #   {preset}         - 预设名称
 #
+# 源文件派生变量（用于区分同基名的多容器文件）:
+#   {srcExt}         - 源扩展名，含点，如 ".mkv"
+#   {srcExtBare}     - 源扩展名，不含点，如 "mkv"
+#   {srcStem}        - 源文件名（不含扩展名）
+#   {srcName}        - 源文件名（含扩展名）
+#
+# 为什么需要它们：同一基名的多容器文件（如 Movie.mkv / Movie.mp4 / Movie.webm）
+# 在默认后缀 `_{preset}` 下会映射到同一个输出名，只有第一个能产出、其余被判
+# destination_conflict_in_batch 跳过。{srcVideoCodec} / {srcFormat} 都无法可靠区分
+# ——同一内容的 .mkv 与 .mp4 可能是相同容器、也可能是同一 codec，只有源扩展名稳定。
+# 需要全部保留时，在命令行参数里写：--suffix "_{preset}{srcExt}"
+#
 # 码率字段（videoBitrate / audioBitrate / maxBitrate）为严格字符串，带单位写法：
 #   "233k" / "1.6M" / "800k"（1000 进制，与 CLI --video-bitrate 一致），
 #   构造时经 parseBitrate 归一为 bps。裸数字（bps）仅在程序化构造时被接受。
