@@ -384,7 +384,13 @@ public static partial class HwAccel
         // 硬件解码层（帧在显存）一旦要跑软件滤镜，必须先下载到系统内存
         var vramFrames = tier.HwFormat == "cuda" || tier.HwFormat == "qsv";
         var swDomain = vramFrames && (!string.IsNullOrEmpty(o.PreFilters) || !string.IsNullOrEmpty(o.PostFilters));
-        if (swDomain) chain.AddRange(["hwdownload", "format=nv12"]);
+        if (swDomain)
+        {
+            var mustBe8Bit = ScaleFormatOverride(tier, o.CodecFamily, o.PixFmt, o.BitDepth) != null;
+            var hiBit = BitDepthOf(o.PixFmt, o.BitDepth) == "10bit";
+            var swFormat = mustBe8Bit ? "nv12" : hiBit ? "p010le" : "nv12";
+            chain.AddRange(["hwdownload", $"format={swFormat}"]);
+        }
         if (!string.IsNullOrEmpty(o.PreFilters)) chain.Add(o.PreFilters);
         var sp = ValidateSpeed(o.Speed);
         if (sp != 1) chain.Add($"setpts=PTS/{FormatSpeed(sp)}");
@@ -634,14 +640,15 @@ public static partial class HwAccel
 
     private static readonly Dictionary<string, bool> ProbeCache = new(StringComparer.Ordinal);
 
-    /// <summary>探测缓存键（层|编码|族|像素格式|尺寸档|位深|显式编码器|speed|fps|anime）。</summary>
+    /// <summary>探测缓存键（层|编码|族|像素格式|尺寸档|位深|显式编码器|speed|fps|anime|quality）。</summary>
     public static string ProbeCacheKey(
         string tierName, string codec, string codecFamily, string? pixFmt, long dimension,
-        int? bitDepth, string? forcedEncoder, double? speed, double? framerate, bool anime = false)
+        int? bitDepth, string? forcedEncoder, double? speed, double? framerate, bool anime = false, double? quality = null)
     {
         var speedKey = speed is > 0 && speed != 1 ? HwAccel.speedKey(speed.Value) : "";
         var fpsKey = framerate is > 0 ? HwAccel.speedKey(framerate.Value) : "";
-        return $"{tierName}|{codec}|{codecFamily}|{pixFmt}|{dimension}|{(bitDepth?.ToString() ?? "")}|{forcedEncoder ?? ""}|{speedKey}|{fpsKey}|{(anime ? "anime" : "")}";
+        var qualityKey = quality is > 0 ? HwAccel.speedKey(quality.Value) : "";
+        return $"{tierName}|{codec}|{codecFamily}|{pixFmt}|{dimension}|{(bitDepth?.ToString() ?? "")}|{forcedEncoder ?? ""}|{speedKey}|{fpsKey}|{(anime ? "anime" : "")}|{qualityKey}";
     }
 
     private static string speedKey(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -655,7 +662,7 @@ public static partial class HwAccel
     public static bool ProbeLayer(ProbeLayerOptions o)
     {
         var key = ProbeCacheKey(o.Tier.Name, o.Codec, o.CodecFamily, o.PixFmt, o.Size.W,
-            o.BitDepth, o.ForcedEncoder, o.Speed, o.Framerate, o.Anime);
+            o.BitDepth, o.ForcedEncoder, o.Speed, o.Framerate, o.Anime, o.Quality);
         if (o.UseCache && ProbeCache.TryGetValue(key, out var cached)) return cached;
 
         var bin = !string.IsNullOrEmpty(o.FFmpegPath) ? o.FFmpegPath : FfmpegBin.Which("ffmpeg");

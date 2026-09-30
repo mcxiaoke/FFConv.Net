@@ -13,6 +13,7 @@ public sealed class VideoInfo
     public double FrameRate { get; set; }
     public string? PixelFormat { get; set; }  // ffprobe pix_fmt or mediainfo "YUV4:2:0"
     public int? BitDepth { get; set; }        // explicit bit depth (mediainfo BitDepth / bits_per_raw_sample)
+    public int? StreamIndex { get; set; }     // absolute stream index in container (ffprobe index)
     public Dictionary<string, string> Tags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 

@@ -120,21 +120,28 @@ public static class PresetLoader
     /// <summary>
     /// Port of resolveExtends: recursively merge the inherited preset, child keys
     /// win, `extends` key itself is dropped. Throws on cycles / missing bases.
+    /// Supports basePresets for cross-layer inheritance (user presets extending bundled presets).
     /// </summary>
     public static Dictionary<string, object?> ResolveExtends(
         Dictionary<string, Dictionary<string, object?>> presets,
         string presetName,
-        HashSet<string>? resolved = null)
+        HashSet<string>? resolved = null,
+        Dictionary<string, Dictionary<string, object?>>? basePresets = null)
     {
         resolved ??= [];
         if (!resolved.Add(presetName))
             throw new InvalidOperationException($"Circular extends detected: {presetName}");
-        if (!presets.TryGetValue(presetName, out var preset))
+
+        Dictionary<string, object?>? preset = null;
+        if (presets.TryGetValue(presetName, out var p1)) preset = p1;
+        else if (basePresets != null && basePresets.TryGetValue(presetName, out var p2)) preset = p2;
+
+        if (preset == null)
             throw new KeyNotFoundException($"Preset not found: {presetName}");
         if (!preset.TryGetValue("extends", out var extendsRaw) || extendsRaw is not string baseName || baseName.Length == 0)
             return new Dictionary<string, object?>(preset, StringComparer.Ordinal);
 
-        var basePreset = ResolveExtends(presets, baseName, resolved);
+        var basePreset = ResolveExtends(presets, baseName, resolved, basePresets);
         var merged = new Dictionary<string, object?>(basePreset, StringComparer.Ordinal);
         foreach (var kv in preset)
         {
@@ -148,14 +155,15 @@ public static class PresetLoader
     /// fields / type mismatches; invalid entries are skipped.
     /// </summary>
     public static Dictionary<string, Dictionary<string, object?>> ProcessPresets(
-        Dictionary<string, Dictionary<string, object?>> rawPresets)
+        Dictionary<string, Dictionary<string, object?>> rawPresets,
+        Dictionary<string, Dictionary<string, object?>>? basePresets = null)
     {
         var processed = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
         foreach (var (name, _) in rawPresets)
         {
             try
             {
-                var resolved = ResolveExtends(rawPresets, name);
+                var resolved = ResolveExtends(rawPresets, name, basePresets: basePresets);
                 if (!ValidatePresetFields(name, resolved)) continue;
                 processed[name] = resolved;
             }
@@ -170,9 +178,15 @@ public static class PresetLoader
     private static bool ValidatePresetFields(string name, Dictionary<string, object?> preset)
     {
         var unknown = preset.Keys.Where(k => !PresetSchema.Fields.Contains(k)).ToList();
+        foreach (var k in unknown)
+        {
+            preset.Remove(k);
+        }
         var mismatch = preset.Keys.Where(k => PresetSchema.HasTypeMismatch(k, preset[k])).ToList();
-        // JS logs warnings here; loader behaviour (skip on non-object, keep on unknown/type warn) preserved.
-        _ = (name, unknown, mismatch);
+        foreach (var k in mismatch)
+        {
+            preset.Remove(k);
+        }
         return true;
     }
 

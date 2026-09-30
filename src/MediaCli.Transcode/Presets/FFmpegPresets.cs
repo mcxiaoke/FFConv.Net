@@ -40,9 +40,11 @@ public static class FFmpegPresets
     {
         var layers = PresetLoader.LoadPresetLayers(customPath);
         var merged = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+        var accumulatedBase = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
         foreach (var layer in layers)
         {
-            var raw = PresetLoader.ProcessPresets(layer.Presets);
+            var raw = PresetLoader.ProcessPresets(layer.Presets, accumulatedBase);
+            foreach (var (k, v) in raw) accumulatedBase[k] = v;
             merged = PresetLoader.MergePresets(merged, new PresetLoader.Layer
             {
                 Path = layer.Path,
@@ -248,8 +250,20 @@ public static class FFmpegPresets
             switch (key)
             {
                 case "videoBitrate" or "audioBitrate":
-                    if (!hasArgvValue && value is not string && Convert.ToDouble(value) > 0)
-                        SetShimValue(argv, key, (long)Math.Round(Convert.ToDouble(value)));
+                    if (!hasArgvValue)
+                    {
+                        if (value is not string && Convert.ToDouble(value) > 0)
+                            SetShimValue(argv, key, (long)Math.Round(Convert.ToDouble(value)));
+                        else if (value is string vs && vs.Length > 0)
+                        {
+                            try
+                            {
+                                var parsed = Helper.ParseBitrate(vs);
+                                if (parsed > 0) SetShimValue(argv, key, parsed);
+                            }
+                            catch { /* ignore invalid bitrate string */ }
+                        }
+                    }
                     break;
                 case "videoQuality" or "audioQuality" or "dimension" or "framerate" or "speed":
                     if (!hasArgvValue && value is not string && Convert.ToDouble(value) > 0)
@@ -257,6 +271,19 @@ public static class FFmpegPresets
                     break;
                 case "videoCopy" or "audioCopy":
                     if (!hasArgvValue) SetShimValue(argv, key, Convert.ToBoolean(value));
+                    break;
+                case "anime":
+                    if (!hasArgvValue)
+                    {
+                        argv.Anime = value switch
+                        {
+                            bool b => b,
+                            string asStr => asStr.Equals("true", StringComparison.OrdinalIgnoreCase) || asStr == "1",
+                            int i => i != 0,
+                            long l => l != 0,
+                            _ => false,
+                        };
+                    }
                     break;
                 case "videoCodec" or "audioCodec":
                     if (!hasArgvValue && value is string s && s.Length > 0) SetShimValue(argv, key, s);
@@ -295,6 +322,7 @@ public static class FFmpegPresets
         "suffix" => argv.Suffix,
         "preset" => argv.Preset,
         "metadata" => argv.Metadata,
+        "anime" => argv.Anime,
         _ => null,
     };
 
@@ -326,7 +354,11 @@ public static class FFmpegPresets
         foreach (var seg in ffargs.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var idx = seg.IndexOf('=');
-            if (idx <= 0) continue;
+            if (idx <= 0)
+            {
+                if (seg.Length > 0) result[seg] = true;
+                continue;
+            }
             var key = seg[..idx].Trim();
             var value = seg[(idx + 1)..].Trim();
             if (key.Length == 0 || value.Length == 0) continue;
@@ -361,7 +393,7 @@ public static class FFmpegPresets
         else if (presetName == "hevc") presetName = "hevc_2k";
         else if (presetName == "h264") presetName = "h264_2k";
 
-        var basePreset = GetPreset(presetName) ?? throw new KeyNotFoundException($"Preset not found: {presetName}");
+        var basePreset = GetPreset(presetName) ?? throw new KeyNotFoundException($"Preset not found: '{presetName}'. Available presets: {string.Join(", ", GetAllNames())}");
         var preset = basePreset.Clone();
         if (isAnime) preset.UserArgs.Anime = true;
 
@@ -426,6 +458,18 @@ public static class FFmpegPresets
             }
             if (pairs.Count > 0) preset.UserArgs.MetadataPairs = pairs;
         }
+
+        // 流复制收口：copy 与滤镜管线互斥，统一清零缩放/帧率/变速
+        if (preset.UserArgs.VideoCopy)
+        {
+            preset.Dimension = 0;
+            preset.Framerate = 0;
+            preset.Speed = 1;
+            preset.UserArgs.Dimension = 0;
+            preset.UserArgs.Framerate = 0;
+            preset.UserArgs.Speed = 1;
+        }
+
         return preset;
     }
 }

@@ -169,11 +169,11 @@ public static partial class HwDetect
             throw new InvalidOperationException("hwdetect: ffmpeg not found");
         }
 
-        // 1. 静态能力：version / encoders / hwaccels / filters + GPU 列表
-        var (vc, verOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-version"]);
-        var (ec, encOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-encoders"]);
-        var (hc, hwOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-hwaccels"]);
-        var (fc, fltOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-filters"]);
+        // 1. 静态能力：version / encoders / hwaccels / filters + GPU 列表（限定 8s 超时防止死锁）
+        var (vc, verOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-version"], timeoutMs: 8000);
+        var (ec, encOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-encoders"], timeoutMs: 8000);
+        var (hc, hwOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-hwaccels"], timeoutMs: 8000);
+        var (fc, fltOut, _) = FfmpegBin.RunCapture(bin, ["-hide_banner", "-v", "error", "-filters"], timeoutMs: 8000);
         if (vc != 0 && verOut.Length == 0) { /* 继续用空输出走降级 */ }
         _ = (ec, hc, fc);
         var (version, configuration) = ParseVersionInfo(verOut);
@@ -309,9 +309,12 @@ public static partial class HwDetect
     {
         if (decodeMode == "cpu") return ["cpu"];
 
+        var normHw = NormalizeHwaccelName(hwaccel);
+        if (normHw == "cpu") return ["cpu"];
+
         if (decodeMode == "gpu")
         {
-            var name = NormalizeHwaccelName(hwaccel)
+            var name = normHw
                 ?? throw new ArgumentException(
                     "decodeMode=gpu requires --hwaccel (cuda|qsv|amf|d3d|d3d11va|d3d12va|dxva2), got '" + (hwaccel ?? "") + "'");
             if (!caps.Usable.TryGetValue(name, out var ok) || !ok)
@@ -322,11 +325,11 @@ public static partial class HwDetect
             return [name];
         }
 
-        // auto 模式 + 显式 hwaccel（"auto" 除外）：白名单过滤，保留 cpu 兜底
+        // auto 模式 + 显式 hwaccel（"auto" 与 "cpu" 除外）：白名单过滤，保留 cpu 兜底
         if (!string.IsNullOrEmpty(hwaccel) && !hwaccel.Equals("auto", StringComparison.OrdinalIgnoreCase))
         {
-            var name = NormalizeHwaccelName(hwaccel);
-            if (name is not null && name != "cpu")
+            var name = normHw;
+            if (name is not null)
             {
                 var usable = caps.Usable.TryGetValue(name, out var ok) && ok;
                 return usable ? [name, "cpu"] : ["cpu"];

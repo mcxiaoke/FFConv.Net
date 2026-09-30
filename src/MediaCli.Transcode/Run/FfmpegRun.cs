@@ -201,13 +201,6 @@ public static partial class FfmpegRun
             {
                 ExecuteFFmpeg(ffmpegArgs, entry, options ?? new RunOptions(), signal);
 
-                if (signal.IsCancellationRequested)
-                {
-                    entry.Cancelled = true;
-                    entry.CancelReason = "cancelled before output commit";
-                    return entry;
-                }
-
                 // 目标可能在执行期间由其它进程创建；再次检查避免竞态误覆盖
                 if (File.Exists(entry.FileDst) && !shouldOverride)
                 {
@@ -226,12 +219,6 @@ public static partial class FfmpegRun
                     var srcBigEnough = entry.Size > FileSize1M;
                     if (!dstTooSmall || !srcBigEnough)
                     {
-                        if (signal.IsCancellationRequested)
-                        {
-                            entry.Cancelled = true;
-                            entry.CancelReason = "cancelled before output commit";
-                            return entry;
-                        }
                         var committed = CommitOutputFile(entry.FileDstTemp!, entry.FileDst!, shouldOverride);
                         if (!committed)
                         {
@@ -246,6 +233,13 @@ public static partial class FfmpegRun
                         return entry;
                     }
                     // 转换失败：产物异常小，删除临时文件
+                }
+
+                if (signal.IsCancellationRequested)
+                {
+                    entry.Cancelled = true;
+                    entry.CancelReason = "cancelled before output commit";
+                    return entry;
                 }
 
                 // ffmpeg 退出 0 但产物异常小/缺失：不设 ffmpegFailed（不进重试链路）

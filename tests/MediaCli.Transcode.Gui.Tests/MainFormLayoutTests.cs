@@ -103,6 +103,19 @@ public class AboutFormTests
         });
     }
 
+    [Fact]
+    public void AboutForm_HasToolStatusLabel()
+    {
+        Ui.RunWithAbout(form =>
+        {
+            var label = Ui.Require<Label>(form, "lblAboutToolStatus");
+            Assert.True(label.Visible);
+            Assert.Contains("ffmpeg:", label.Text);
+            Assert.Contains("ffprobe:", label.Text);
+            Assert.Contains("mediainfo:", label.Text);
+        });
+    }
+
     /// <summary>
     /// 回归 P0-1：关闭按钮曾被 Dock=Fill 的 TabControl 完全遮挡——
     /// TabControl 区域覆盖整个客户区，且 z-order 上位于按钮之上，

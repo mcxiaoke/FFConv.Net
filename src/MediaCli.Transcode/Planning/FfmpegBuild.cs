@@ -15,9 +15,27 @@ public static partial class FfmpegBuild
         "hdmv_pgs_subtitle", "pgs", "dvd_subtitle", "vobsub", "dvb_subtitle", "dvb_teletext", "xsub", "arib_caption"
     };
 
-    private static readonly string[] SubArgsMkv = ["-c:s", "copy", "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?"];
-    private static readonly string[] SubArgsMp4 = ["-c:s", "mov_text", "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?"];
-    private static readonly string[] SubArgsMp4Drop = ["-sn", "-map", "0:v:0", "-map", "0:a?"];
+    private static readonly string[] SubArgsMkvTail = ["-c:s", "copy", "-map", "0:a?", "-map", "0:s?"];
+    private static readonly string[] SubArgsMp4Tail = ["-c:s", "mov_text", "-map", "0:a?", "-map", "0:s?"];
+    private static readonly string[] SubArgsMp4DropTail = ["-sn", "-map", "0:a?"];
+
+    private static string[]? VideoStreamMapArgs(TranscodeEntry entry)
+    {
+        var idx = entry.Info?.Video?.StreamIndex;
+        return idx.HasValue && idx.Value >= 0 ? ["-map", $"0:{idx.Value}"] : null;
+    }
+
+    private static void PushStreamMaps(TranscodeEntry entry, List<string> inputArgs, IEnumerable<string> tail)
+    {
+        var videoMap = VideoStreamMapArgs(entry);
+        if (videoMap == null)
+        {
+            // 绝对序号缺失时整组 -map 都不输出，交由 ffmpeg 默认流选择（默认选择会自动跳过 attached_pic 封面）
+            return;
+        }
+        inputArgs.AddRange(videoMap);
+        inputArgs.AddRange(tail);
+    }
 
     private static readonly string[] MetaKeyList = ["title", "artist", "album", "albumartist", "year"];
 
@@ -120,7 +138,11 @@ public static partial class FfmpegBuild
             if (post.Length > 0) list.Add(post);
             return string.Join(",", list);
         }
-        bool hasScale = scaleRequested || tempPreset.Scaled || fps > 0.0;
+        int srcW = entry.Info?.Video?.Width ?? 0;
+        int srcH = entry.Info?.Video?.Height ?? 0;
+        bool sizeChanged = (srcW > 0 && size.W != HwAccel.ToEven(srcW)) ||
+                           (srcH > 0 && size.H != HwAccel.ToEven(srcH));
+        bool hasScale = sizeChanged || tempPreset.Scaled;
         return HwAccel.BuildVideoFilters(new HwVideoFilterOptions
         {
             Tier = tier,
@@ -193,7 +215,8 @@ public static partial class FfmpegBuild
 
     private static void AppendSubtitleArgs(TranscodeEntry entry, List<string> inputArgs, TempPreset tempPreset)
     {
-        if (tempPreset.Type != "video" && !Helper.IsVideoFile(entry.Path))
+        // 仅视频预设处理字幕与视频流映射（非视频预设如 audio_extract 绝不注入，避免与自带的 -map 0:a:0 叠加生成重复音轨）
+        if (tempPreset.Type != "video")
         {
             return;
         }
@@ -203,6 +226,15 @@ public static partial class FfmpegBuild
             text = tempPreset.Format ?? Helper.PathExt(entry.Path);
         }
         bool isMkv = text.Contains("mkv", StringComparison.OrdinalIgnoreCase);
+        bool isWebm = text.Contains("webm", StringComparison.OrdinalIgnoreCase);
+
+        // WebM 容器仅支持 WebVTT 字幕，mov_text 或 copy 会导致 muxer 崩溃，在此强制降级为 -sn 丢弃
+        if (isWebm)
+        {
+            PushStreamMaps(entry, inputArgs, SubArgsMp4DropTail);
+            return;
+        }
+
         if (!string.IsNullOrEmpty(entry.SelectedSubtitle))
         {
             string subCodec = isMkv ? "copy" : "mov_text";
@@ -210,26 +242,24 @@ public static partial class FfmpegBuild
                 "-i", entry.SelectedSubtitle,
                 "-c:s", subCodec,
                 "-metadata:s:s:0", "language=chi",
-                "-disposition:s:0", "default",
-                "-map", "0:v:0",
-                "-map", "0:a?",
-                "-map", "1:0?"
+                "-disposition:s:0", "default"
             ]);
+            PushStreamMaps(entry, inputArgs, ["-map", "0:a?", "-map", "1:0?"]);
         }
         else if (isMkv)
         {
-            inputArgs.AddRange(SubArgsMkv);
+            PushStreamMaps(entry, inputArgs, SubArgsMkvTail);
         }
         else
         {
             List<SubtitleInfo>? list = entry.Info?.Subtitles;
             if (list != null && list.Count > 0 && list.Any(IsBitmapSubtitle))
             {
-                inputArgs.AddRange(SubArgsMp4Drop);
+                PushStreamMaps(entry, inputArgs, SubArgsMp4DropTail);
             }
             else
             {
-                inputArgs.AddRange(SubArgsMp4);
+                PushStreamMaps(entry, inputArgs, SubArgsMp4Tail);
             }
         }
     }
@@ -329,7 +359,23 @@ public static partial class FfmpegBuild
 
         if (tempPreset.UserArgs.AudioCopy || tempPreset.AudioCodec == "copy" || tempPreset.AudioArgs == "-c:a copy")
         {
-            shouldCopy = true;
+            var srcAudioCodec = entry.DstArgs?.SrcAudioCodec;
+            if (string.IsNullOrEmpty(srcAudioCodec))
+            {
+                shouldCopy = true;
+            }
+            else
+            {
+                var dstExt = tempPreset.Format ?? Helper.PathExt(entry.Path);
+                var containerOk = Helper.IsAudioCodecCompatibleWithContainer(
+                    dstExt: dstExt,
+                    audioCodec: srcAudioCodec,
+                    audioCodecId: entry.Info?.Audio?.CodecId);
+                if (containerOk)
+                {
+                    shouldCopy = true;
+                }
+            }
         }
         else if (FFmpegPresets.IsAudioExtract(tempPreset.Preset))
         {
@@ -356,6 +402,10 @@ public static partial class FfmpegBuild
         string codecOrArgs = string.IsNullOrEmpty(tempPreset.UserArgs.AudioCodec)
             ? (tempPreset.AudioCodec.Length > 0 ? tempPreset.AudioCodec : "aac")
             : tempPreset.UserArgs.AudioCodec;
+        if (codecOrArgs == "copy")
+        {
+            codecOrArgs = "aac";
+        }
 
         if (!string.IsNullOrEmpty(tempPreset.AudioArgs) && string.IsNullOrEmpty(tempPreset.UserArgs.AudioCodec))
         {

@@ -34,31 +34,23 @@ public static class FfprobeMediaInfo
             }
             if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
             {
+                var videoCandidates = new List<(JsonElement Stream, int CoverRank)>();
                 foreach (var stream in streams.EnumerateArray())
                 {
                     var type = stream.TryGetProperty("codec_type", out var ct) ? ct.GetString() : null;
                     switch (type)
                     {
-                        case "video" when info.Video is null:
-                            info.Video = new VideoInfo
-                            {
-                                Format = GetString(stream, "codec_name"),
-                                Profile = GetString(stream, "profile"),
-                                Level = stream.TryGetProperty("level", out var lv) ? lv.GetRawText() : null,
-                                Duration = GetDouble(stream, "duration"),
-                                Bitrate = GetLong(stream, "bit_rate"),
-                                Width = stream.TryGetProperty("width", out var w) ? w.GetInt32() : 0,
-                                Height = stream.TryGetProperty("height", out var h) ? h.GetInt32() : 0,
-                                FrameRate = ParseRatio(GetString(stream, "avg_frame_rate")),
-                                PixelFormat = GetString(stream, "pix_fmt"),
-                                BitDepth = stream.TryGetProperty("bits_per_raw_sample", out var bd)
-                                    ? int.TryParse(bd.ValueKind == JsonValueKind.String ? bd.GetString() : bd.GetRawText(), out var bdi) && bdi > 0 ? bdi : null
-                                    : null,
-                                Tags = ParseTags(stream),
-                            };
-                            // format 层没有 duration 时用视频流时长兜底
-                            if (info.Duration <= 0) info.Duration = info.Video.Duration;
-                            if (info.Bitrate <= 0) info.Bitrate = info.Video.Bitrate;
+                        case "video":
+                            var codecName = GetString(stream, "codec_name") ?? "";
+                            var isAttachedPic = stream.TryGetProperty("disposition", out var disp)
+                                && disp.TryGetProperty("attached_pic", out var ap)
+                                && ap.ValueKind == JsonValueKind.Number && ap.GetInt32() == 1;
+                            var nbFrames = stream.TryGetProperty("nb_frames", out var nbf)
+                                ? long.TryParse(nbf.ValueKind == JsonValueKind.String ? nbf.GetString() : nbf.GetRawText(), out var n) ? n : 0
+                                : 0;
+                            var w = stream.TryGetProperty("width", out var we) ? we.GetInt32() : 0;
+                            var rank = isAttachedPic ? 2 : LooksLikeCoverArt(codecName, nbFrames, w) ? 1 : 0;
+                            videoCandidates.Add((stream, rank));
                             break;
                         case "audio" when info.Audio is null:
                             info.Audio = new AudioInfo
@@ -83,6 +75,54 @@ public static class FfprobeMediaInfo
                             break;
                     }
                 }
+
+                // 挑选主视频流：分三档判定（0=正常视频优先，1=疑似封面/静帧次之，2=确证封面直接排除）
+                var picked = videoCandidates.FirstOrDefault(c => c.CoverRank == 0).Stream;
+                if (picked.ValueKind == JsonValueKind.Undefined)
+                {
+                    picked = videoCandidates.FirstOrDefault(c => c.CoverRank == 1).Stream;
+                }
+
+                if (picked.ValueKind != JsonValueKind.Undefined)
+                {
+                    var codedW = picked.TryGetProperty("width", out var wEl) ? wEl.GetInt32() : 0;
+                    var codedH = picked.TryGetProperty("height", out var hEl) ? hEl.GetInt32() : 0;
+                    var dispW = codedW;
+                    var sar = ParseRatio(GetString(picked, "sample_aspect_ratio"));
+                    if (sar > 0 && Math.Abs(sar - 1.0) > 1e-4 && codedW > 0)
+                    {
+                        dispW = (int)Math.Round(codedW * sar);
+                    }
+
+                    int? streamIdx = picked.TryGetProperty("index", out var idxEl) && idxEl.TryGetInt32(out var idxVal)
+                        ? idxVal : null;
+
+                    var rFps = ParseRatio(GetString(picked, "r_frame_rate"));
+                    var avgFps = ParseRatio(GetString(picked, "avg_frame_rate"));
+                    var fps = NormalizeFrameRate(rFps, avgFps);
+
+                    info.Video = new VideoInfo
+                    {
+                        Format = GetString(picked, "codec_name"),
+                        Profile = GetString(picked, "profile"),
+                        Level = picked.TryGetProperty("level", out var lv) ? lv.GetRawText() : null,
+                        Duration = GetDouble(picked, "duration"),
+                        Bitrate = GetLong(picked, "bit_rate"),
+                        Width = dispW > 0 ? dispW : codedW,
+                        Height = codedH,
+                        FrameRate = fps,
+                        PixelFormat = GetString(picked, "pix_fmt"),
+                        BitDepth = picked.TryGetProperty("bits_per_raw_sample", out var bd)
+                            ? int.TryParse(bd.ValueKind == JsonValueKind.String ? bd.GetString() : bd.GetRawText(), out var bdi) && bdi > 0 ? bdi : null
+                            : null,
+                        StreamIndex = streamIdx,
+                        Tags = ParseTags(picked),
+                    };
+
+                    // format 层没有 duration 时用视频流时长兜底
+                    if (info.Duration <= 0) info.Duration = info.Video.Duration;
+                    if (info.Bitrate <= 0) info.Bitrate = info.Video.Bitrate;
+                }
             }
             return info;
         }
@@ -90,6 +130,30 @@ public static class FfprobeMediaInfo
         {
             return null;
         }
+    }
+
+    private static readonly HashSet<string> StillImageCodecs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mjpeg", "png", "bmp", "webp", "tiff", "gif", "jpeg", "av1_image"
+    };
+
+    private static bool LooksLikeCoverArt(string codec, long frames, int width)
+    {
+        var c = codec.ToLowerInvariant().Trim();
+        if (c.StartsWith("v_")) c = c[2..];
+        if (!StillImageCodecs.Contains(c) && !c.Contains("mpeg4/iso/sp")) return false;
+        if (frames > 1) return false;
+        if (width > 1024) return false;
+        return true;
+    }
+
+    private static double NormalizeFrameRate(double rFps, double avgFps)
+    {
+        bool IsSane(double v) => v >= 1.0 && v <= 240.0;
+        if (IsSane(rFps) && IsSane(avgFps) && Math.Abs(rFps - avgFps) / avgFps <= 0.05) return rFps;
+        if (IsSane(avgFps)) return avgFps;
+        if (IsSane(rFps)) return rFps;
+        return 0;
     }
 
     private static string? GetString(JsonElement el, string name)

@@ -218,6 +218,10 @@ public class AboutContentTests
     public void UsageTips_ExplainsBitrateAndPriority()
     {
         var text = AboutContent.UsageTips();
+        Assert.Contains("核心工具链环境", text);
+        Assert.Contains("ffmpeg:", text);
+        Assert.Contains("ffprobe:", text);
+        Assert.Contains("mediainfo:", text);
         Assert.Contains("参数优先级", text);
         Assert.Contains("命令行单独参数", text);
         Assert.Contains("3000000", text);

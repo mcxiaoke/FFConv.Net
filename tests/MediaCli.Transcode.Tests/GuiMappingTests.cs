@@ -360,6 +360,7 @@ public class GuiMappingTests
                 Bitrate = 10_240_000,
                 Video = new VideoInfo
                 {
+                    StreamIndex = 0,
                     Format = "hevc", Width = 3840, Height = 2160, Bitrate = 10_000_000,
                     FrameRate = 23.976, PixelFormat = "yuv420p10le", BitDepth = 10,
                 },

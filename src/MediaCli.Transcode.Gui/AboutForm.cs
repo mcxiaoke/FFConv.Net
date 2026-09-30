@@ -106,6 +106,14 @@ public static class AboutContent
         var sb = new StringBuilder();
         sb.AppendLine($"FFConv {BuildInfo.DisplayString}");
         sb.AppendLine();
+        sb.AppendLine("【核心工具链环境】");
+        var ffmpeg = MediaCli.Transcode.Bin.FfmpegBin.ResolveFFmpegBinary();
+        var ffprobe = MediaCli.Transcode.Bin.FfmpegBin.ResolveFFprobeBinary(ffmpeg);
+        var mediainfo = MediaCli.Transcode.Bin.FfmpegBin.ResolveMediaInfoBinary(ffmpeg);
+        sb.AppendLine($"    ffmpeg:    {(string.IsNullOrEmpty(ffmpeg) ? "未找到（请设置 FFMPEG_PATH 环境变量或放入 exe 同级/ffmpeg/ 目录）" : ffmpeg)}");
+        sb.AppendLine($"    ffprobe:   {(string.IsNullOrEmpty(ffprobe) ? "未找到" : ffprobe)}");
+        sb.AppendLine($"    mediainfo: {(string.IsNullOrEmpty(mediainfo) ? "未找到（可选，优先使用 ffprobe 探测）" : mediainfo)}");
+        sb.AppendLine();
         sb.AppendLine("一、参数优先级（与 FFConv 一致）");
         sb.AppendLine("    命令行单独参数  >  --ffargs 复合参数  >  预设默认值");
         sb.AppendLine("    本界面上：参数框  >  界面控件（下拉框 / 复选框）");
@@ -197,6 +205,27 @@ public sealed class AboutForm : Form
             Dock = DockStyle.Bottom,
             Height = 44,
         };
+        var fPath = MediaCli.Transcode.Bin.FfmpegBin.ResolveFFmpegBinary();
+        var pPath = MediaCli.Transcode.Bin.FfmpegBin.ResolveFFprobeBinary(fPath);
+        var mPath = MediaCli.Transcode.Bin.FfmpegBin.ResolveMediaInfoBinary(fPath);
+        var toolStatus = new Label
+        {
+            Name = "lblAboutToolStatus",
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Color.DimGray,
+            Font = new Font("Microsoft YaHei UI", 8.25F),
+            Location = new Point(12, 6),
+            Size = new Size(footer.Width - 130, 32),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Text = $"ffmpeg: {Path.GetFileName(fPath ?? "未找到")}   ·   ffprobe: {Path.GetFileName(pPath ?? "未找到")}   ·   mediainfo: {Path.GetFileName(mPath ?? "未找到")}",
+        };
+        var toolTip = new ToolTip();
+        toolTip.SetToolTip(toolStatus,
+            $"ffmpeg 路径：{fPath ?? "未找到"}\n" +
+            $"ffprobe 路径：{pPath ?? "未找到"}\n" +
+            $"mediainfo 路径：{mPath ?? "未找到"}");
+
         var close = new Button
         {
             Name = "btnAboutClose",
@@ -206,6 +235,7 @@ public sealed class AboutForm : Form
         close.SetBounds(footer.Width - 110, 8, 96, 28);
         close.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
         close.Click += (_, _) => Close();
+        footer.Controls.Add(toolStatus);
         footer.Controls.Add(close);
 
         // 先加 Fill 再加 Bottom，保证停靠布局按预期分配剩余空间。

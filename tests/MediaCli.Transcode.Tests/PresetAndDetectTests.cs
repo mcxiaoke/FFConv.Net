@@ -359,4 +359,71 @@ public class PresetAndDetectTests
         Assert.Contains("h264_nvenc", set);
         Assert.Contains("aac", set);
     }
+
+    [Fact]
+    public void HwDetect_GetHwaccelCandidates_CpuReturnsSingleCpu()
+    {
+        var caps = new HardwareCaps
+        {
+            FFmpegPath = "ffmpeg",
+            Vendor = "nvidia",
+            Usable = new Dictionary<string, bool> { ["cuda"] = true, ["cpu"] = true },
+            StaticOk = new Dictionary<string, bool> { ["cuda"] = true, ["cpu"] = true },
+        };
+        var candidates = HwDetect.CandidateTiers(caps, hwaccel: "cpu");
+        Assert.Single(candidates);
+        Assert.Equal("cpu", candidates[0]);
+    }
+
+    [Fact]
+    public void PresetLoader_ResolveExtends_MultiLevelInheritance()
+    {
+        var rawA = new Dictionary<string, object?> { ["dimension"] = 1080L, ["videoCodecFamily"] = "h264" };
+        var rawB = new Dictionary<string, object?> { ["extends"] = "a", ["audioCodec"] = "aac" };
+        var rawC = new Dictionary<string, object?> { ["extends"] = "b", ["videoQuality"] = 22L };
+
+        var dict = new Dictionary<string, Dictionary<string, object?>>
+        {
+            ["a"] = rawA,
+            ["b"] = rawB,
+            ["c"] = rawC,
+        };
+
+        var resolvedC = PresetLoader.ResolveExtends(dict, "c");
+        Assert.Equal(1080L, Convert.ToInt64(resolvedC["dimension"]));
+        Assert.Equal("h264", resolvedC["videoCodecFamily"]?.ToString());
+        Assert.Equal("aac", resolvedC["audioCodec"]?.ToString());
+        Assert.Equal(22L, Convert.ToInt64(resolvedC["videoQuality"]));
+    }
+
+    [Fact]
+    public void FFmpegPresets_CreateFromArgv_StringBitrateAndAnime()
+    {
+        FFmpegPresets.Init();
+        var shim = new FFmpegPresets.ArgvShim { Preset = "hevc_2k" };
+        var ffargs = FFmpegPresets.ParseFfargs("vb=2500k,ab=192k,anime");
+        FFmpegPresets.ApplyFfargs(shim, ffargs);
+        var preset = FFmpegPresets.CreateFromArgv(shim);
+        Assert.Equal(2_500_000, preset.UserArgs.VideoBitrate);
+        Assert.Equal(192_000, preset.UserArgs.AudioBitrate);
+        Assert.True(preset.UserArgs.Anime);
+    }
+
+    [Fact]
+    public void FFmpegPresets_CreateFromArgv_VideoCopyCleansDimensionsAndFramerate()
+    {
+        FFmpegPresets.Init();
+        var shim = new FFmpegPresets.ArgvShim
+        {
+            Preset = "hevc_2k",
+            VideoCopy = true,
+            Framerate = 60,
+            Speed = 2.0,
+        };
+        var preset = FFmpegPresets.CreateFromArgv(shim);
+        Assert.True(preset.UserArgs.VideoCopy);
+        Assert.Equal(0, preset.Dimension);
+        Assert.Equal(0.0, preset.Framerate);
+        Assert.Equal(1.0, preset.Speed);
+    }
 }

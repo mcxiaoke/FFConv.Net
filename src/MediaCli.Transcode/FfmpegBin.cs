@@ -10,7 +10,41 @@ namespace MediaCli.Transcode.Bin;
 /// </summary>
 public static class FfmpegBin
 {
-    public static string? ResolveFFmpegBinary(IEnumerable<string>? extraCandidates = null)
+    /// <summary>
+    /// 获取 exe 同目录及 ffmpeg/ 等子目录下的预置二进制候选路径（优先于系统 PATH）。
+    /// 支持查找的子目录：&lt;baseDir&gt;/ffmpeg/bin、&lt;baseDir&gt;/ffmpeg、&lt;baseDir&gt;/bin、&lt;baseDir&gt;/。
+    /// </summary>
+    public static IEnumerable<string> GetBundledCandidates(string name, string? baseDirectory = null)
+    {
+        var baseDir = !string.IsNullOrEmpty(baseDirectory) ? baseDirectory : AppContext.BaseDirectory;
+        if (string.IsNullOrEmpty(baseDir)) yield break;
+
+        var fileNames = OperatingSystem.IsWindows()
+            ? (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? new[] { name } : new[] { $"{name}.exe", name })
+            : new[] { name };
+
+        string[] subDirs = [
+            Path.Combine(baseDir, "ffmpeg", "bin"),
+            Path.Combine(baseDir, "ffmpeg"),
+            Path.Combine(baseDir, "bin"),
+            baseDir
+        ];
+
+        foreach (var dir in subDirs)
+        {
+            if (!Directory.Exists(dir)) continue;
+            foreach (var fn in fileNames)
+            {
+                var full = Path.Combine(dir, fn);
+                if (File.Exists(full))
+                {
+                    yield return full;
+                }
+            }
+        }
+    }
+
+    public static string? ResolveFFmpegBinary(IEnumerable<string>? extraCandidates = null, string? baseDirectory = null)
     {
         foreach (var key in new[] { "FFMPEG_PATH", "FFMPEG_BINARY" })
         {
@@ -26,10 +60,14 @@ public static class FfmpegBin
                 if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate)) return candidate;
             }
         }
+        foreach (var candidate in GetBundledCandidates("ffmpeg", baseDirectory))
+        {
+            return candidate;
+        }
         return Which("ffmpeg");
     }
 
-    public static string? ResolveFFprobeBinary(string? ffmpegPath = null)
+    public static string? ResolveFFprobeBinary(string? ffmpegPath = null, string? baseDirectory = null)
     {
         foreach (var key in new[] { "FFPROBE_PATH", "FFPROBE_BINARY" })
         {
@@ -38,8 +76,24 @@ public static class FfmpegBin
             var candidate = raw.Trim();
             if (File.Exists(candidate)) return candidate;
         }
-        // 传入的 ffmpeg 同目录优先；否则回退到已解析的 ffmpeg（PATH/环境变量）同目录
-        var bin = ffmpegPath ?? ResolveFFmpegBinary();
+
+        // 显式传入的 ffmpeg 优先看其同级目录
+        if (!string.IsNullOrEmpty(ffmpegPath))
+        {
+            var sibling = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(ffmpegPath)) ?? ".",
+                OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+            if (File.Exists(sibling)) return sibling;
+        }
+
+        // 本地随附候选（exe 同级 / ffmpeg/ 等子目录）优先于系统 PATH
+        foreach (var candidate in GetBundledCandidates("ffprobe", baseDirectory))
+        {
+            return candidate;
+        }
+
+        // 若上述均未命中，检查已解析的 ffmpeg 同级目录（若有）
+        var bin = ffmpegPath ?? ResolveFFmpegBinary(baseDirectory: baseDirectory);
         if (!string.IsNullOrEmpty(bin))
         {
             var sibling = Path.Combine(
@@ -47,7 +101,45 @@ public static class FfmpegBin
                 OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
             if (File.Exists(sibling)) return sibling;
         }
+
         return Which("ffprobe");
+    }
+
+    public static string? ResolveMediaInfoBinary(string? ffmpegPath = null, string? baseDirectory = null)
+    {
+        foreach (var key in new[] { "MEDIAINFO_PATH", "MEDIAINFO_BINARY" })
+        {
+            var raw = Environment.GetEnvironmentVariable(key);
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var candidate = raw.Trim();
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        // 显式传入的 ffmpeg 优先看其同级目录
+        if (!string.IsNullOrEmpty(ffmpegPath))
+        {
+            var sibling = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(ffmpegPath)) ?? ".",
+                OperatingSystem.IsWindows() ? "mediainfo.exe" : "mediainfo");
+            if (File.Exists(sibling)) return sibling;
+        }
+
+        // 本地随附候选（exe 同级 / ffmpeg/ 等子目录）优先于系统 PATH
+        foreach (var candidate in GetBundledCandidates("mediainfo", baseDirectory))
+        {
+            return candidate;
+        }
+
+        var bin = ffmpegPath ?? ResolveFFmpegBinary(baseDirectory: baseDirectory);
+        if (!string.IsNullOrEmpty(bin))
+        {
+            var sibling = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(bin)) ?? ".",
+                OperatingSystem.IsWindows() ? "mediainfo.exe" : "mediainfo");
+            if (File.Exists(sibling)) return sibling;
+        }
+
+        return Which("mediainfo");
     }
 
     /// <summary>Minimal `which` over PATH (nothrow semantics: null when missing).</summary>

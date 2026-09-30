@@ -11,7 +11,10 @@ public sealed record SystemInfo(
     string FfmpegVersion,
     string Vendor,
     IReadOnlyList<string> UsableTiers,
-    IReadOnlyList<string> AllGpus)
+    IReadOnlyList<string> AllGpus,
+    string? FfmpegPath = null,
+    string? FfprobePath = null,
+    string? MediainfoPath = null)
 {
     /// <summary>GPU 适配器数量。</summary>
     public int GpuCount => AllGpus.Count;
@@ -30,12 +33,18 @@ public sealed record SystemInfo(
     {
         var tiers = UsableTiers.Count > 0 ? string.Join("、", UsableTiers) : "无（将走 cpu）";
         var gpuLine = GpuCount > 1 ? string.Join("、", AllGpus) : Gpu;
-        return string.Join(Environment.NewLine,
+        var list = new List<string>
+        {
             $"CPU：{Cpu}",
             $"GPU：{gpuLine}",
             $"ffmpeg：{FfmpegVersion}",
-            $"厂商：{Vendor}",
-            $"可用硬件层：{tiers}");
+        };
+        if (!string.IsNullOrEmpty(FfmpegPath)) list.Add($"ffmpeg 路径：{FfmpegPath}");
+        if (!string.IsNullOrEmpty(FfprobePath)) list.Add($"ffprobe 路径：{FfprobePath}");
+        if (!string.IsNullOrEmpty(MediainfoPath)) list.Add($"mediainfo 路径：{MediainfoPath}");
+        list.Add($"厂商：{Vendor}");
+        list.Add($"可用硬件层：{tiers}");
+        return string.Join(Environment.NewLine, list);
     }
 
     /// <summary>
@@ -81,7 +90,7 @@ public static class SystemInfoProbe
     }
 
     /// <summary>基于 core 的硬件探测结果组装信息（探测已在别处完成并缓存）。</summary>
-    public static SystemInfo FromCaps(HardwareCaps caps)
+    public static SystemInfo FromCaps(HardwareCaps caps, string? ffmpegPath = null, string? ffprobePath = null, string? mediainfoPath = null)
     {
         // Gpu 只放主适配器：状态栏宽度有限，全量列举会把 ffmpeg 版本挤出去。
         // 完整清单放进 AllGpus，由悬停提示展示。
@@ -94,8 +103,11 @@ public static class SystemInfoProbe
             .ToList();
 
         var version = string.IsNullOrWhiteSpace(caps.Version) ? "未知" : ShortVersion(caps.Version);
+        var fPath = ffmpegPath ?? caps.FFmpegPath;
+        var pPath = ffprobePath ?? MediaCli.Transcode.Bin.FfmpegBin.ResolveFFprobeBinary(fPath);
+        var mPath = mediainfoPath ?? MediaCli.Transcode.Bin.FfmpegBin.ResolveMediaInfoBinary(fPath);
 
-        return new SystemInfo(CpuName(), primaryGpu, version, caps.Vendor, tiers, allGpus);
+        return new SystemInfo(CpuName(), primaryGpu, version, caps.Vendor, tiers, allGpus, fPath, pPath, mPath);
     }
 
     /// <summary>不依赖 core 探测的退化信息（探测失败时仍能给出可用内容）。</summary>
@@ -111,7 +123,9 @@ public static class SystemInfoProbe
                 version = ShortVersion(stdout.Split('\n')[0]);
             }
         }
-        return new SystemInfo(CpuName(), "未识别", version, "unknown", [], []);
+        var pPath = MediaCli.Transcode.Bin.FfmpegBin.ResolveFFprobeBinary(ffmpegPath);
+        var mPath = MediaCli.Transcode.Bin.FfmpegBin.ResolveMediaInfoBinary(ffmpegPath);
+        return new SystemInfo(CpuName(), "未识别", version, "unknown", [], [], ffmpegPath, pPath, mPath);
     }
 
     /// <summary>

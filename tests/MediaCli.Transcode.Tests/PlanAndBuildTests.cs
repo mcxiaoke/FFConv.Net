@@ -27,6 +27,7 @@ public class PlanAndBuildTests
                 Bitrate = srcVideoBitrate + srcAudioBitrate + 48_000,
                 Video = new VideoInfo
                 {
+                    StreamIndex = 0,
                     Format = "hevc", Width = w, Height = h, Bitrate = srcVideoBitrate,
                     FrameRate = 23.976, PixelFormat = "yuv420p10le", BitDepth = 10,
                 },
@@ -456,5 +457,74 @@ public class PlanAndBuildTests
         // JS 特征词正则命中 "Error/failed" 等词；无 [error] 标记时取第一条特征词行
         var msg = FfmpegRun.ExtractFFmpegError("Error while opening encoder for output stream #0:0\nConversion failed!");
         Assert.Equal("Error while opening encoder for output stream #0:0", msg);
+    }
+
+    [Fact]
+    public void CreateFFmpegArgs_CoverVideoStream_MapsCorrectIndex()
+    {
+        var entry = MakeEntry("movie.mkv");
+        entry.Info!.Video!.StreamIndex = 1; // Stream 0 was attached cover
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var input = args[0].ToList();
+        var mapIdx = input.IndexOf("-map");
+        Assert.True(mapIdx >= 0);
+        Assert.Equal("0:1", input[mapIdx + 1]);
+    }
+
+    [Fact]
+    public void CreateFFmpegArgs_NoStreamIndex_DropsMap()
+    {
+        var entry = MakeEntry("movie.mkv");
+        entry.Info!.Video!.StreamIndex = null;
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var input = args[0].ToList();
+        Assert.DoesNotContain("-map", input);
+    }
+
+    [Fact]
+    public void CreateFFmpegArgs_Webm_DropsSubtitles()
+    {
+        var entry = MakeEntry("movie.webm");
+        entry.Preset.Format = ".webm";
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var input = args[0].ToList();
+        Assert.Contains("-sn", input);
+        Assert.DoesNotContain("-c:s", input);
+    }
+
+    [Fact]
+    public void CreateFFmpegArgs_SameResolution_SkipsScaleFilter()
+    {
+        var entry = MakeEntry("movie.mp4", w: 1920, h: 1080);
+        entry.Preset = FFmpegPresets.GetPreset("hevc_2k")!.Clone();
+        entry.Preset.PreFilters = null;
+        entry.Preset.PostFilters = null;
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var middle = args[1].ToList();
+        Assert.DoesNotContain(middle, a => a.Contains("scale=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CreateFFmpegArgs_AudioCopy_IncompatibleContainerFallback()
+    {
+        var entry = MakeEntry("movie.mkv");
+        entry.Preset.Format = ".mp4";
+        entry.Preset.AudioCodec = "copy";
+        entry.Info!.Audio!.Format = "vorbis"; // MP4 不支持直接 copy Vorbis
+        entry.DstArgs = FfmpegPlan.CalculateDstArgs(entry);
+        var cpu = new HwPlan { Tier = HwAccel.Tiers.First(t => t.Name == "cpu") };
+        var (args, _) = FfmpegBuild.CreateFFmpegArgs(entry, cpu);
+        var middle = args[1].ToList();
+        var aIdx = middle.IndexOf("-c:a");
+        Assert.True(aIdx >= 0);
+        Assert.Equal("aac", middle[aIdx + 1]);
     }
 }

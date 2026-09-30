@@ -1160,6 +1160,10 @@ public class MainForm : Form
         AppendLog(SessionLogLevel.Info,
             ffprobe is null ? "ffprobe: 未找到（媒体信息探测会失败）" : $"ffprobe: {ffprobe}");
 
+        var mediainfo = FfmpegBin.ResolveMediaInfoBinary(ffmpeg);
+        AppendLog(SessionLogLevel.Info,
+            mediainfo is null ? "mediainfo: 未找到（使用 ffprobe 探测）" : $"mediainfo: {mediainfo}");
+
         // 状态栏：CPU / ffmpeg 版本 / 可用硬件层（GPU 移除，完整硬件环境信息写日志）
         SystemInfoProbe.ProbeAsync(
             ffmpeg,
