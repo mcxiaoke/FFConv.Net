@@ -355,6 +355,11 @@ public static partial class FfmpegRun
     private static void ExecuteFFmpeg(
         IReadOnlyList<string> args, TranscodeEntry entry, RunOptions options, CancellationToken externalSignal)
     {
+        // ffmpeg 存活期间强制保持系统唤醒：睡眠会冻结子进程、进度停滞并留下损坏的临时产物。
+        // finally 会归还标志，CLI Ctrl+C、GUI 取消/关窗走的都是这条路径。
+        using var sleepGuard = SleepGuard.Acquire();
+        options.OnLog?.Invoke("[POWER] 已阻止系统睡眠（转码结束 / Ctrl+C / 关闭窗口后自动恢复）");
+
         var srcDuration = entry.DstArgs?.SrcDuration > 0 ? entry.DstArgs.SrcDuration : entry.Info?.Duration ?? 0;
         var bin = ffmpegPath ?? FfmpegBin.ResolveFFmpegBinary();
 

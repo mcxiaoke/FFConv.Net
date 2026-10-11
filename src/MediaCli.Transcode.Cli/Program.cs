@@ -14,6 +14,33 @@ namespace MediaCli.Transcode.Cli;
 /// </summary>
 public static class Program
 {
+    /// <summary>
+    /// Ctrl+C 取消源。
+    ///
+    /// 置 <c>e.Cancel = true</c> 让 CLR 不要直接终结进程：只有走 core 的取消链路，
+    /// 才能 kill ffmpeg 子进程树、清理临时文件，并在 ExecuteFFmpeg 的 finally 里
+    /// 归还「阻止睡眠」标志。若放任默认行为，ffmpeg 会变孤儿进程继续占着 GPU。
+    /// </summary>
+    private static readonly CancellationTokenSource CtrlC = new();
+
+    static Program()
+    {
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            try
+            {
+                if (CtrlC.IsCancellationRequested) return;
+                Console.Error.WriteLine("\n[abort] 收到 Ctrl+C，正在停止 ffmpeg 并清理临时文件...");
+                CtrlC.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 进程正在退出，无需再取消
+            }
+        };
+    }
+
     public static int Main(string[] args)
     {
         try
@@ -78,6 +105,10 @@ public static class Program
               --anime               动漫模式
               --include/--exclude/--regex/--start/--count   文件过滤与切片
               --doit                真正执行（仅 run）
+
+            说明:
+              转码执行期间会自动阻止系统睡眠；按 Ctrl+C 会停止 ffmpeg、清理临时文件并恢复，
+              退出码 130。
             """);
     }
 
@@ -324,7 +355,11 @@ public static class Program
             if (task.Skipped || task.DstExists) continue;
             Console.WriteLine($"\n=== ({i + 1}/{tasks.Count}) {task.Path}");
             task.TestMode = false;
-            var result = FfmpegRun.RunFFmpeg(task).ToRunResult();
+            var result = FfmpegRun.RunFFmpeg(task, new RunOptions
+            {
+                Signal = CtrlC.Token,
+                OnLog = line => Console.Error.WriteLine($"  | {line}"),
+            }).ToRunResult();
             switch (result.Status)
             {
                 case RunStatus.Success:

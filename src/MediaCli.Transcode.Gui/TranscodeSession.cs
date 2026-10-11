@@ -523,7 +523,7 @@ public sealed class TranscodeSession
     /// <summary>
     /// 转发 core 的输出。
     ///
-    /// core 只发三类结构化行（[PREPARE]/[CMD]/[DONE]）与<b>原始 ffmpeg stderr</b>
+    /// core 只发四类结构化行（[PREPARE]/[CMD]/[DONE]/[POWER]）与<b>原始 ffmpeg stderr</b>
     /// （<c>FfmpegRun.cs:423</c>，仅在「详细日志」时量很大）。
     /// 需求要求不显示 ffmpeg 常规 verbose，因此只对原始行做过滤——
     /// 结构化行是 core 自己的结论，必须完整保留。
@@ -543,6 +543,13 @@ public sealed class TranscodeSession
             return;
         }
         if (line.StartsWith("[PREPARE]", StringComparison.Ordinal))
+        {
+            log(SessionLogLevel.Info, line);
+            return;
+        }
+        // core 的电源管理提示（防睡眠开关）。同为结构化结论，必须完整保留：
+        // 否则会被下面的 ffmpeg 过滤器当成噪声丢弃，还污染「已隐藏 N 行」统计。
+        if (line.StartsWith("[POWER]", StringComparison.Ordinal))
         {
             log(SessionLogLevel.Info, line);
             return;
