@@ -77,15 +77,20 @@ public class MainFormLayoutTests
             var item = Ui.FindToolStripItem(form, "systemInfoLabel");
             Assert.True(item is not null, "状态栏缺少 systemInfoLabel");
 
-            // 探测在后台进行，等它填充
-            Assert.True(Ui.WaitUntil(
-                    () => Ui.ItemText(item).Contains("CPU") || Ui.ItemText(item).Contains("ffmpeg"),
-                    60_000),
-                $"状态栏未显示机器信息，当前为「{Ui.ItemText(item)}」");
+            // 探测在后台进行，等它落到终态。
+            //
+            // 这里刻意**不用状态栏当等待信号**：它的初始文案「正在探测机器与 ffmpeg 信息…」
+            // 本身就含 "ffmpeg"，拿它做条件会立即成立，断言随即在探测写日志之前执行——
+            // 结果就是该用例偶尔失败。唯一可靠的完成信号是日志区的「硬件环境信息」。
+            var logText = () => Ui.Require<RichTextBox>(form, "logBox").Text;
+            Assert.True(Ui.WaitUntil(() => logText().Contains("硬件环境信息"), 60_000),
+                $"日志未出现「硬件环境信息」，探测可能未完成或失败。当前日志：\n{logText()}");
 
-            Assert.DoesNotContain("GPU", Ui.ItemText(item));
+            // 探测回调里状态栏与日志是连续赋值，此刻状态栏必然已填充
+            Assert.DoesNotContain("正在探测", Ui.ItemText(item));
+            Assert.Contains("CPU", Ui.ItemText(item));
             Assert.Contains("ffmpeg", Ui.ItemText(item));
-            Assert.Contains("硬件环境信息", Ui.Require<RichTextBox>(form, "logBox").Text);
+            Assert.DoesNotContain("GPU", Ui.ItemText(item));
         });
     }
 
